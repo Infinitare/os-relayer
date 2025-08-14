@@ -1,6 +1,23 @@
 [package]
 name = "os-relayer"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 
 [dependencies]
+clap = { version = "4.5.45", features = ["derive", "env"] }
+tokio = { version = "1.47.1", features = ["full"] }
+log = "0.4.27"
+env_logger = "0.11.8"
+agave-validator = "2.3.7"
+agave-banking-stage-ingress-types = "2.3.7"
+solana-sdk = "=2.3.1"
+solana-perf = "2.3.7"
+solana-streamer = "2.3.7"
+solana-client = "2.3.7"
+solana-metrics = "2.3.7"
+solana-commitment-config = "2.2.1"
+solana-core = "2.3.7"
+solana-net-utils = "2.3.7"
+crossbeam-channel = "0.5.15"
+serde_yaml = "0.9.33"
+dashmap = "5.5.3"
