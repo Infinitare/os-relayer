@@ -3,8 +3,10 @@ mod relayer;
 mod blockengine;
 mod proxy;
 mod rpc;
+mod protos;
 
 use std::fs;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use agave_validator::admin_rpc_service::StakedNodesOverrides;
@@ -14,6 +16,7 @@ use log::{info};
 use solana_sdk::signature::read_keypair_file;
 use solana_sdk::signer::Signer;
 use crate::helper::graceful_panic;
+use crate::relayer::Relayer;
 use crate::rpc::load_balancer::LoadBalancer;
 
 #[derive(Parser, Debug)]
@@ -50,6 +53,10 @@ struct Args {
     /// Port for TPU QUIC Forward packets
     #[arg(long, env, default_value_t = 11_229)]
     tpu_quic_fwd_port: u16,
+    
+    /// Public IP address of the validator - if not provided, it will be determined automatically
+    #[arg(long, env)]
+    public_ip: Option<IpAddr>,
 
     /// Jito Blockengine the Relayer will connect to - choose the one closest to your Server
     #[arg(long, env)]
@@ -86,13 +93,25 @@ fn main() {
             ))
         }
     };
+    let public_ip = if args.public_ip.is_some() {
+        args.public_ip.unwrap()
+    } else {
+        let entrypoint = solana_net_utils::parse_host_port("entrypoint.mainnet-beta.solana.com:8001")
+            .expect("parse entrypoint");
+        info!(
+            "Contacting {} to determine the validator's public IP address",
+            entrypoint
+        );
+        solana_net_utils::get_public_ip_addr(&entrypoint).expect("get public ip address")
+    };
 
     let exit = graceful_panic(None);
     let (rpc_load_balancer, slot_receiver) = LoadBalancer::new(&vec![(args.rpc_server, args.websocket_server)], &exit);
     let rpc_load_balancer = Arc::new(rpc_load_balancer);
 
-    let (packet_sender, packet_receiver) = relayer::start_relayer_service(
+    let (relayer, packet_sender, packet_receiver) = Relayer::new(
         &keypair,
+        &public_ip,
         args.tpu_quic_port,
         args.tpu_quic_fwd_port,
         staked_nodes_overrides.staked_map_id,
