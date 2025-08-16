@@ -149,7 +149,6 @@ impl Forwarder {
                 batch
                     .iter()
                     .filter(|p| !p.meta().discard())
-                    .map(|p| &p)
                     .filter_map(packet_to_proto_packet)
             })
             .collect();

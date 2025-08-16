@@ -8,13 +8,15 @@ mod protos;
 use std::fs;
 use std::net::IpAddr;
 use std::path::PathBuf;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc};
 use agave_validator::admin_rpc_service::StakedNodesOverrides;
 use clap::Parser;
 use env_logger::Env;
 use log::{info};
 use solana_sdk::signature::read_keypair_file;
 use solana_sdk::signer::Signer;
+use tokio::runtime::Builder;
+use crate::blockengine::Blockengine;
 use crate::helper::graceful_panic;
 use crate::relayer::Relayer;
 use crate::rpc::load_balancer::LoadBalancer;
@@ -25,6 +27,14 @@ struct Args {
     /// Path to keypair file used to authenticate with the backend
     #[arg(long, env)]
     keypair_path: PathBuf,
+
+    /// The private key used to sign tokens by this server.
+    #[arg(long, env)]
+    signing_key_pem_path: PathBuf,
+
+    /// The public key used to verify tokens by this and other services.
+    #[arg(long, env)]
+    verifying_key_pem_path: PathBuf,
 
     /// RPC server the Relayer will connect to for data
     #[arg(
@@ -42,6 +52,18 @@ struct Args {
     )]
     websocket_server: String,
 
+    /// Bind IP address for GRPC server
+    #[arg(long, env, default_value_t = IpAddr::V4(std::net::Ipv4Addr::new(0, 0, 0, 0)))]
+    grpc_bind_ip: IpAddr,
+
+    /// Bind port address for GRPC server
+    #[arg(long, env, default_value_t = 11_225)]
+    blockengine_bind_port: u16,
+
+    /// Bind port address for GRPC server
+    #[arg(long, env, default_value_t = 11_226)]
+    relayer_bind_port: u16,
+
     /// Path to staked nodes overrides file
     #[arg(long, env)]
     staked_nodes_overrides: Option<PathBuf>,
@@ -53,7 +75,7 @@ struct Args {
     /// Port for TPU QUIC Forward packets
     #[arg(long, env, default_value_t = 11_229)]
     tpu_quic_fwd_port: u16,
-    
+
     /// Public IP address of the validator - if not provided, it will be determined automatically
     #[arg(long, env)]
     public_ip: Option<IpAddr>,
@@ -106,12 +128,25 @@ fn main() {
     };
 
     let exit = graceful_panic(None);
+    let rt = Builder::new_multi_thread()
+        .enable_all()
+        .disable_lifo_slot()
+        .worker_threads(256)
+        .thread_stack_size(5 * 1024 * 1024)
+        .build()
+        .unwrap();
+
     let (rpc_load_balancer, slot_receiver) = LoadBalancer::new(&vec![(args.rpc_server, args.websocket_server)], &exit);
     let rpc_load_balancer = Arc::new(rpc_load_balancer);
 
     let (relayer, packet_sender, packet_receiver) = Relayer::new(
         &keypair,
+        &rt.handle(),
         &public_ip,
+        &args.grpc_bind_ip,
+        args.blockengine_bind_port,
+        &args.signing_key_pem_path,
+        &args.verifying_key_pem_path,
         args.tpu_quic_port,
         args.tpu_quic_fwd_port,
         staked_nodes_overrides.staked_map_id,
@@ -119,8 +154,10 @@ fn main() {
         &exit,
     );
 
-    let (jito_bundle_sender, jito_bundle_receiver, jito_packets_sender, jito_packets_receiver) = blockengine::start_blockengine_service(
-        &keypair,
+    let (blockengine, jito_bundle_sender, jito_bundle_receiver, jito_packets_sender, jito_packets_receiver) = Blockengine::new(
+        &rt.handle(),
+        &args.grpc_bind_ip,
+        args.relayer_bind_port,
         args.jito_blockengine,
         &exit,
     );

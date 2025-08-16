@@ -21,8 +21,18 @@ solana-commitment-config = "2.2.1"
 solana-core = "2.3.7"
 solana-net-utils = "2.3.7"
 crossbeam-channel = "0.5.15"
+serde = { version = "1.0.160", features = ["derive"] }
 serde_yaml = "0.9.33"
 dashmap = "6.1.0"
+chrono = "0.4.41"
+keyed_priority_queue = "0.4.2"
+jwt = { version = "0.16.0", features = ["openssl"] }
+openssl = "0.10.73"
+ed25519-dalek = "1.0.1"
+rand = "0.8.5"
+futures-util = "0.3.31"
+tokio-stream = { version = "0.1.17", features = ["sync"] }
+prost = "0.12.6"
 
 [build-dependencies]
 tonic-build = "0.10.2"

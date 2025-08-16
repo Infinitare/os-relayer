@@ -12,6 +12,7 @@ fn main() {
     configure()
         .compile(
             &[
+                "src/protos/protos/auth.proto",
                 "src/protos/protos/block_engine.proto",
                 "src/protos/protos/bundle.proto",
                 "src/protos/protos/packet.proto",

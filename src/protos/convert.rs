@@ -1,7 +1,7 @@
 use solana_perf::packet::{Packet, PacketRef};
 use crate::protos::packet::{Meta as ProtoMeta, Packet as ProtoPacket, PacketFlags as ProtoPacketFlags};
 
-pub fn packet_to_proto_packet(p: &PacketRef) -> Option<ProtoPacket> {
+pub fn packet_to_proto_packet(p: PacketRef) -> Option<ProtoPacket> {
     Some(ProtoPacket {
         data: p.data(..)?.to_vec(),
         meta: Some(ProtoMeta {
