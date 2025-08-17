@@ -4,7 +4,7 @@ use std::net::IpAddr;
 use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, SystemTime};
 use agave_banking_stage_ingress_types::BankingPacketBatch;
 use crossbeam_channel::Sender;
 use log::{error, warn};
@@ -26,7 +26,6 @@ use crate::relayer::tpu::Tpu;
 type PacketSubscriptions = Arc<RwLock<HashMap<Pubkey, TokioSender<Result<SubscribePacketsResponse, Status>>>>>;
 
 pub struct Forwarder {
-    tasks: Vec<thread::JoinHandle<()>>,
     public_ip: IpAddr,
     tpu_quic_port: u16,
     tpu_fwd_quic_port: u16,
@@ -42,7 +41,7 @@ impl Forwarder {
         tpu_quic_port: u16,
         tpu_fwd_quic_port: u16,
         exit: &Arc<AtomicBool>,
-    ) -> (Self, Sender<BankingPacketBatch>) {
+    ) -> (Self, Vec<thread::JoinHandle<()>>, Sender<BankingPacketBatch>) {
         let (delay_packet_sender, delay_packet_receiver) = crossbeam_channel::bounded(Tpu::TPU_QUEUE_CAPACITY);
         let packet_subscriptions = Arc::new(RwLock::new(HashMap::default()));
 
@@ -64,13 +63,13 @@ impl Forwarder {
 
         (
             Self {
-                tasks: vec![thread],
                 public_ip: public_ip.clone(),
                 tpu_quic_port,
                 tpu_fwd_quic_port,
                 packet_subscriptions,
             },
-            delay_packet_sender
+            vec![thread],
+            delay_packet_sender,
         )
     }
 
@@ -218,13 +217,6 @@ impl Forwarder {
 
         *heartbeat_count += 1;
         Ok(failed_pubkey_updates)
-    }
-
-    pub fn join(self) -> thread::Result<()> {
-        for task in self.tasks {
-            task.join()?;
-        }
-        Ok(())
     }
 }
 

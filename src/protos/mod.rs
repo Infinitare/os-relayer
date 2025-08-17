@@ -23,3 +23,7 @@ pub mod relayer {
 pub mod auth {
     tonic::include_proto!("auth");
 }
+
+pub mod inf {
+    tonic::include_proto!("inf");
+}

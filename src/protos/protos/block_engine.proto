@@ -25,11 +25,6 @@ message BlockBuilderFeeInfoResponse {
   uint64 commission = 2;
 }
 
-message AccountsOfInterest {
-  // use * for all accounts
-  repeated string accounts = 1;
-}
-
 message AccountsOfInterestRequest {}
 message AccountsOfInterestUpdate {
   repeated string accounts = 1;

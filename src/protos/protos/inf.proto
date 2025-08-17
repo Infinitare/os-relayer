@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+import "packet.proto";
+import "bundle.proto";
+import "block_engine.proto";
+import "google/protobuf/empty.proto";
+
+package inf;
+
+message Header {
+    bytes signed_message = 1;
+}
+
+message SubscribePacketsRequest {
+    Header header = 1;
+}
+
+message SubscribeBundlesRequest {
+    Header header = 1;
+}
+
+message StreamPacketsRequest {
+    oneof kind {
+        Header header = 1;
+        packet.PacketBatch batch = 2;
+    }
+}
+message StreamBundlesRequest {
+    oneof kind {
+        Header header = 1;
+        block_engine.SubscribeBundlesResponse bundle = 2;
+    }
+}
+
+service InfService {
+    rpc SubscribePackets (SubscribePacketsRequest) returns (stream block_engine.SubscribePacketsResponse) {}
+    rpc SubscribeJitoPackets (SubscribePacketsRequest) returns (stream block_engine.SubscribePacketsResponse) {}
+    rpc SubscribeJitoBundles (SubscribeBundlesRequest) returns (stream block_engine.SubscribeBundlesResponse) {}
+
+    rpc StreamPackets (stream StreamPacketsRequest) returns (google.protobuf.Empty) {}
+    rpc StreamJitoPackets (stream StreamPacketsRequest) returns (google.protobuf.Empty) {}
+    rpc StreamJitoBundles (stream StreamBundlesRequest) returns (google.protobuf.Empty) {}
+}

@@ -23,7 +23,25 @@ pub struct LoadBalancer {
     server_to_slot: Arc<DashMap<String, Slot>>,
     /// (rpc_url, client)
     server_to_rpc_client: DashMap<String, Arc<RpcClient>>,
+}
+
+pub struct LoadBalancerThreads {
     subscription_threads: Vec<JoinHandle<()>>,
+}
+
+impl LoadBalancerThreads {
+    pub fn new (subscription_threads: Vec<JoinHandle<()>>) -> Self {
+        LoadBalancerThreads {
+            subscription_threads,
+        }
+    }
+
+    pub fn join(self) -> thread::Result<()> {
+        for s in self.subscription_threads {
+            s.join()?;
+        }
+        Ok(())
+    }
 }
 
 impl LoadBalancer {
@@ -33,7 +51,7 @@ impl LoadBalancer {
     pub fn new(
         servers: &[(String, String)], /* http rpc url, ws url */
         exit: &Arc<AtomicBool>,
-    ) -> (LoadBalancer, Receiver<Slot>) {
+    ) -> (LoadBalancer, LoadBalancerThreads, Receiver<Slot>) {
         let server_to_slot = Arc::new(DashMap::from_iter(
             servers.iter().map(|(_, ws)| (ws.clone(), 0)),
         ));
@@ -61,8 +79,8 @@ impl LoadBalancer {
             LoadBalancer {
                 server_to_slot,
                 server_to_rpc_client,
-                subscription_threads,
             },
+            LoadBalancerThreads::new(subscription_threads),
             slot_receiver,
         )
     }
@@ -177,12 +195,5 @@ impl LoadBalancer {
             .unwrap();
         let (server, slot) = multi.pair();
         (server.to_string(), *slot)
-    }
-
-    pub fn join(self) -> thread::Result<()> {
-        for s in self.subscription_threads {
-            s.join()?;
-        }
-        Ok(())
     }
 }

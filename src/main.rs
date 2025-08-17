@@ -18,6 +18,7 @@ use solana_sdk::signer::Signer;
 use tokio::runtime::Builder;
 use crate::blockengine::Blockengine;
 use crate::helper::graceful_panic;
+use crate::proxy::Proxy;
 use crate::relayer::Relayer;
 use crate::rpc::load_balancer::LoadBalancer;
 
@@ -136,8 +137,8 @@ fn main() {
         .build()
         .unwrap();
 
-    let (rpc_load_balancer, slot_receiver) = LoadBalancer::new(&vec![(args.rpc_server, args.websocket_server)], &exit);
-    let rpc_load_balancer = Arc::new(rpc_load_balancer);
+    let (rpc_load_balancer, load_balancer_threads, _) = LoadBalancer::new(&vec![(args.rpc_server, args.websocket_server)], &exit);
+    let rpc_load_balancer_arc = Arc::new(rpc_load_balancer);
 
     let (relayer, packet_sender, packet_receiver) = Relayer::new(
         &keypair,
@@ -150,7 +151,7 @@ fn main() {
         args.tpu_quic_port,
         args.tpu_quic_fwd_port,
         staked_nodes_overrides.staked_map_id,
-        &rpc_load_balancer,
+        &rpc_load_balancer_arc.clone(),
         &exit,
     );
 
@@ -162,17 +163,26 @@ fn main() {
         &exit,
     );
 
-    proxy::start_proxy_service(
+
+    let proxy = Proxy::new(
         &keypair,
+        &rt.handle(),
         &args.proxy,
-        packet_receiver,
         packet_sender,
+        packet_receiver,
         jito_bundle_sender,
         jito_bundle_receiver,
         jito_packets_sender,
         jito_packets_receiver,
         &exit,
     );
+    
+    rt.block_on(async move {
+        relayer.join().await.expect("failed to join relayer");
+        blockengine.join().await.expect("failed to join blockengine");
+        proxy.join().await;
+    });
+    load_balancer_threads.join().expect("failed to join load_balancer threads");
 
     exit.store(true, std::sync::atomic::Ordering::Relaxed);
     info!("Relayer service has been stopped gracefully.");

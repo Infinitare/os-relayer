@@ -4,7 +4,7 @@ use std::{
     ops::Add,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, RwLock,
+        Arc,
     },
     time::Duration as StdDuration,
 };

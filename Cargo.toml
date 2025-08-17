@@ -12,7 +12,7 @@ agave-validator = "2.3.7"
 agave-banking-stage-ingress-types = "2.3.7"
 solana-sdk = "=2.3.1"
 tonic = { version = "0.10.2", features = ["tls", "tls-roots", "tls-webpki-roots"] }
-prost-types = "0.14.1"
+prost-types = "0.12.6"
 solana-streamer = "2.3.7"
 solana-perf = "2.3.7"
 solana-client = "2.3.7"

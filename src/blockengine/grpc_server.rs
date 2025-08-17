@@ -7,7 +7,7 @@ use tokio::sync::broadcast;
 use tonic::codegen::BoxStream;
 use tonic::{Code, Request, Response, Status};
 use tonic::transport::{Channel, Endpoint};
-use tokio_stream::{Stream, wrappers::{BroadcastStream, ReceiverStream}};
+use tokio_stream::{Stream, wrappers::{BroadcastStream}};
 use crate::protos::auth::auth_service_server::AuthService;
 use crate::protos::auth::{GenerateAuthChallengeRequest, GenerateAuthChallengeResponse, GenerateAuthTokensRequest, GenerateAuthTokensResponse, RefreshAccessTokenRequest, RefreshAccessTokenResponse};
 use crate::protos::auth::auth_service_client::AuthServiceClient;
@@ -52,7 +52,7 @@ impl GrpcServer {
             packets_sender_from_blockengine,
         }
     }
-    
+
     async fn get_block_engine_client(
         &self,
         peer: Option<SocketAddr>,

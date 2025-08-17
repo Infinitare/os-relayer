@@ -14,7 +14,7 @@ use crossbeam_channel::{Receiver, Sender};
 use jwt::{AlgorithmType, PKeyWithDigest};
 use log::info;
 use openssl::hash::MessageDigest;
-use openssl::pkey::{PKey, Private, Public};
+use openssl::pkey::{PKey};
 use solana_sdk::pubkey::Pubkey;
 use solana_sdk::signature::Keypair;
 use tonic::transport::Server;
@@ -31,6 +31,7 @@ use crate::rpc::load_balancer::LoadBalancer;
 pub struct Relayer {
     tpu: Tpu,
     server: tokio::task::JoinHandle<()>,
+    forwarder_tasks: Vec<thread::JoinHandle<()>>,
 }
 
 impl Relayer {
@@ -69,7 +70,7 @@ impl Relayer {
             digest: MessageDigest::sha256(),
             key: PKey::public_key_from_pem(&public_key).unwrap(),
         });
-        
+
         let (tpu, receiver) = Tpu::new(
             keypair,
             tpu_quic_port,
@@ -79,7 +80,7 @@ impl Relayer {
             exit,
         );
 
-        let (forwarder, sender) = Forwarder::new(
+        let (forwarder, forwarder_tasks, sender) = Forwarder::new(
             public_ip,
             tpu_quic_port,
             tpu_quic_fwd_port,
@@ -107,11 +108,12 @@ impl Relayer {
                 .await
                 .expect("serve relayer");
         });
-
+        
         (
             Relayer {
                 tpu,
                 server,
+                forwarder_tasks
             },
             sender,
             receiver
@@ -121,6 +123,9 @@ impl Relayer {
     pub async fn join(self) -> thread::Result<()> {
         self.tpu.join()?;
         self.server.await.expect("server join failed");
+        for task in self.forwarder_tasks {
+            task.join().expect("forwarder task join failed");
+        }
         Ok(())
     }
 }
