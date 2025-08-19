@@ -72,7 +72,6 @@ impl Proxy {
             internal_proxy_jito_packets_sender,
         );
 
-        info!("Proxy connected to {}", proxy);
         Proxy {
             connection: connection_join,
             routing: routing_join,

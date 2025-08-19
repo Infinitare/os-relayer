@@ -149,7 +149,7 @@ fn main() {
         &rt.handle(),
         &public_ip,
         &args.grpc_bind_ip,
-        args.blockengine_bind_port,
+        args.relayer_bind_port,
         &args.signing_key_pem_path,
         &args.verifying_key_pem_path,
         args.tpu_quic_port,
@@ -162,7 +162,7 @@ fn main() {
     let (blockengine, jito_bundle_sender, jito_bundle_receiver, jito_packets_sender, jito_packets_receiver) = Blockengine::new(
         &rt.handle(),
         &args.grpc_bind_ip,
-        args.relayer_bind_port,
+        args.blockengine_bind_port,
         args.jito_blockengine,
         &exit,
     );

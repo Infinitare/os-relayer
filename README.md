@@ -100,4 +100,16 @@ If everything works, you can enable the Service to start on boot
 sudo systemctl enable os-relayer.service
 ```
 
+Lastly, you have to add the following lines to your Startup Script
+```
+  --block-engine-url "http://127.0.0.1:11225/" \
+  --relayer-url http://127.0.0.1:11226/ \
+```
+
+You can either restart your Validator or run the following command to apply the changes
+```bash
+agave-validator --ledger /mnt/ledger/ set-block-engine-config --block-engine-url "http://127.0.0.1:11225"
+agave-validator --ledger /mnt/ledger/ set-relayer-config --relayer-url http://127.0.0.1:11226
+```
+
 That's it, you should now have a running Relayer!
