@@ -88,6 +88,10 @@ struct Args {
     /// Server the Relayer will connect to analyze transactions
     #[arg(long, env)]
     proxy: String,
+
+    /// String used to sign authentication by clients
+    #[arg(long, env)]
+    signing_string: String,
 }
 
 fn main() {
@@ -174,9 +178,10 @@ fn main() {
         jito_bundle_receiver,
         jito_packets_sender,
         jito_packets_receiver,
+        &args.signing_string,
         &exit,
     );
-    
+
     rt.block_on(async move {
         relayer.join().await.expect("failed to join relayer");
         blockengine.join().await.expect("failed to join blockengine");

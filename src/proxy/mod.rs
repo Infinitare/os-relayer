@@ -19,7 +19,6 @@ pub struct Proxy {
 
 impl Proxy {
     const PROXY_CHANNEL_LIMIT: usize = 50_000;
-    const SIGN_MESSAGE: &'static str = "inf18081987";
 
     pub fn new(
         keypair: &solana_sdk::signature::Keypair,
@@ -31,11 +30,12 @@ impl Proxy {
         jito_bundle_receiver: crossbeam_channel::Receiver<SubscribeBundlesResponse>,
         jito_packets_sender: broadcast::Sender<SubscribePacketsResponse>,
         jito_packets_receiver: crossbeam_channel::Receiver<SubscribePacketsResponse>,
+        sign_message: &String,
         exit: &Arc<AtomicBool>,
     ) -> Self {
         let signed = Signer::sign_message(
             keypair,
-            Self::SIGN_MESSAGE.as_bytes(),
+            sign_message.as_bytes(),
         );
 
         info!("Connecting Proxy to {}", proxy);
