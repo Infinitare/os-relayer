@@ -3,7 +3,7 @@ use std::panic::PanicHookInfo;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use log::{error, warn};
+use log::{error, info};
 use tokio::signal;
 
 pub async fn shutdown_signal(exit: Arc<AtomicBool>) {
@@ -29,7 +29,7 @@ pub async fn shutdown_signal(exit: Arc<AtomicBool>) {
         _ = terminate => {},
     }
     exit.store(true, Ordering::Relaxed);
-    warn!("signal received, starting graceful shutdown");
+    info!("signal received, starting graceful shutdown");
 }
 
 pub fn graceful_panic(callback: Option<fn(&PanicHookInfo)>) -> Arc<AtomicBool> {

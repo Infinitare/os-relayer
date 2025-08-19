@@ -48,7 +48,7 @@ impl Client {
         let self_clone = self.clone();
         let rt_clone = rt.clone();
         rt.spawn(async move {
-            while self_clone.exit.load(Ordering::Relaxed) {
+            while !self_clone.exit.load(Ordering::Relaxed) {
                 let channel = match self_clone.endpoint.connect().await {
                     Ok(channel) => channel,
                     Err(e) => {
@@ -506,7 +506,9 @@ impl Client {
                                 }
                             }
                             Err(err) => {
-                                error!("Failed to receive message: {}", err);
+                                if !exit_clone.load(Ordering::Relaxed) {
+                                    error!("Failed to receive message: {}", err);
+                                }
                                 break;
                             }
                         }
@@ -514,7 +516,7 @@ impl Client {
                 }
             }
 
-            exit_clone.store(false, Ordering::Relaxed);
+            exit_clone.store(true, Ordering::Relaxed);
         })
     }
 }

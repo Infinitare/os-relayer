@@ -89,6 +89,7 @@ impl Relayer {
 
         let auth_svc = AuthServiceImpl::new(
             ValidatorAutherImpl::default(),
+            &rt,
             signing_key,
             verifying_key.clone(),
             &exit,
@@ -108,7 +109,7 @@ impl Relayer {
                 .await
                 .expect("serve relayer");
         });
-        
+
         (
             Relayer {
                 tpu,

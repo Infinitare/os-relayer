@@ -70,12 +70,14 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         validator_auther: V,
+        rt: &tokio::runtime::Handle,
         signing_key: PKeyWithDigest<Private>,
         verifying_key: Arc<PKeyWithDigest<Public>>,
         exit: &Arc<AtomicBool>,
     ) -> Self {
         let auth_challenges = AuthChallenges::default();
         let _t_hdl = Self::start_challenge_expiration_task(
+            rt,
             auth_challenges.clone(),
             CHALLENGE_EXPIRATION_SLEEP_INTERVAL,
             exit,
@@ -94,12 +96,13 @@ impl<V: ValidatorAuther> AuthServiceImpl<V> {
     }
 
     fn start_challenge_expiration_task(
+        rt: &tokio::runtime::Handle,
         auth_challenges: AuthChallenges,
         sleep_interval: StdDuration,
         exit: &Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         let exit = exit.clone();
-        tokio::task::spawn(async move {
+        rt.spawn(async move {
             let mut interval = interval(sleep_interval);
             while !exit.load(Ordering::Relaxed) {
                 let _ = interval.tick().await;

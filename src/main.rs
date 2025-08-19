@@ -141,7 +141,7 @@ fn main() {
         .build()
         .unwrap();
 
-    let (rpc_load_balancer, load_balancer_threads, _) = LoadBalancer::new(&vec![(args.rpc_server, args.websocket_server)], &exit);
+    let (rpc_load_balancer, load_balancer_threads, _slot_receiver) = LoadBalancer::new(&vec![(args.rpc_server, args.websocket_server)], &exit);
     let rpc_load_balancer_arc = Arc::new(rpc_load_balancer);
 
     let (relayer, packet_sender, packet_receiver) = Relayer::new(

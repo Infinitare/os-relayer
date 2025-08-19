@@ -56,7 +56,9 @@ impl Forwarder {
                         packet_subscriptions,
                         exit,
                     );
-                    warn!("RelayerImpl thread exited with result {res:?}")
+                    if let Err(err) = res {
+                        error!("RelayerImpl thread exited with result {err}")
+                    }
                 })
                 .unwrap()
         };
