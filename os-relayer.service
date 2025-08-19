@@ -1,0 +1,33 @@
+# Example Systemd File for Co-Hosted Relayer
+[Unit]
+Description=Solana transaction relayer
+Requires=network-online.target
+After=network-online.target
+
+# User is required to install a keypair here that's used to auth against the block engine
+ConditionPathExists=/etc/relayer/keys/relayer-keypair.json
+ConditionPathExists=/etc/relayer/keys/private.pem
+ConditionPathExists=/etc/relayer/keys/public.pem
+
+[Service]
+Type=exec
+User=root
+Restart=on-failure
+Environment=RUST_LOG=info
+Environment=SOLANA_METRICS_CONFIG="host=http://metrics.jito.wtf:8086,db=relayer,u=relayer-operators,p=jito-relayer-write"
+Environment=RPC_SERVER=http://127.0.0.1:8899
+Environment=WEBSOCKET_SERVER=ws://127.0.0.1:8900
+Environment=JITO_BLOCKENGINE=
+Environment=PROXY=
+Environment=SIGNING_STRING=
+RestartSec=0
+
+ExecStart=/etc/relayer/os-relayer \
+          --keypair-path=/etc/relayer/keys/relayer-keypair.json \
+          --signing-key-pem-path=/etc/relayer/keys/private.pem \
+          --verifying-key-pem-path=/etc/relayer/keys/public.pem \
+          --staked-nodes-overrides /etc/swqos/overrides.yml \
+          --forward-all
+
+[Install]
+WantedBy=multi-user.target
