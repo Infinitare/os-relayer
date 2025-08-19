@@ -59,8 +59,6 @@ impl Client {
                 };
 
                 let client_instance = InfServiceClient::new(channel);
-                self_clone.connected.store(true, Ordering::Relaxed);
-                info!("Connected to proxy");
 
                 if let Err(err) = self_clone.start_subscribing(
                     client_instance,
@@ -101,6 +99,9 @@ impl Client {
         let packet_stream = client.subscribe_packets(packet_request.clone()).await.map_err(|e| e.to_string())?.into_inner();
         let jito_bundles_stream = client.subscribe_jito_bundles(bundles_request).await.map_err(|e| e.to_string())?.into_inner();
         let jito_packets_stream = client.subscribe_jito_packets(packet_request).await.map_err(|e| e.to_string())?.into_inner();
+
+        self.connected.store(true, Ordering::Relaxed);
+        info!("Connected to proxy");
 
         let subscription_join = self.handle_subscriptions(
             rt,
