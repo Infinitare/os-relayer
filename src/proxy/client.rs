@@ -75,6 +75,9 @@ impl Client {
                 }
 
                 self_clone.connected.store(false, Ordering::Relaxed);
+                if !self_clone.exit.load(Ordering::Relaxed) {
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await
+                }
             }
         })
     }
