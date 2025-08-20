@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use dashmap::DashMap;
-use futures_util::{future, StreamExt, TryStreamExt};
+use futures_util::{StreamExt, TryStreamExt};
 use log::{error, info, warn};
 use tokio::sync::broadcast;
 use tonic::codegen::BoxStream;
@@ -139,8 +139,7 @@ where
         loop {
             tokio::select! {
                 _ = maintenance_tick.tick() => {
-                    info!("maintenance tick {}", exit.load(std::sync::atomic::Ordering::Relaxed));
-                    if exit.load(std::sync::atomic::Ordering::Relaxed) {
+                    if exit.load(Ordering::Relaxed) {
                         info!("Exiting forwarder task due to shutdown signal.");
                         return;
                     }
