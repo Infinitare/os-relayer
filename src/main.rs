@@ -142,7 +142,12 @@ fn main() {
         .build()
         .unwrap();
 
-    let (rpc_load_balancer, load_balancer_threads, _slot_receiver) = LoadBalancer::new(&vec![(args.rpc_server, args.websocket_server)], &exit);
+    let (rpc_load_balancer, load_balancer_threads, slot_receiver) = LoadBalancer::new(&vec![(args.rpc_server, args.websocket_server)], &exit);
+    let slot_reader_join = rt.spawn(async move {
+        while let Ok(_) = slot_receiver.recv() {}
+        info!("Slot reader thread has stopped");
+    });
+
     let rpc_load_balancer_arc = Arc::new(rpc_load_balancer);
 
     let (relayer, packet_sender, packet_receiver) = Relayer::new(
@@ -187,6 +192,7 @@ fn main() {
         relayer.join().await.expect("failed to join relayer");
         blockengine.join().await.expect("failed to join blockengine");
         proxy.join().await;
+        slot_reader_join.await.expect("slot reader thread failed");
     });
     load_balancer_threads.join().expect("failed to join load_balancer threads");
 

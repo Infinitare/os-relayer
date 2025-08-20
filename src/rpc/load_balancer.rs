@@ -10,7 +10,7 @@ use std::{
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender};
 use dashmap::DashMap;
-use log::error;
+use log::{error};
 use solana_client::{pubsub_client::PubsubClient, rpc_client::RpcClient};
 use solana_commitment_config::CommitmentConfig;
 use solana_metrics::datapoint_error;
@@ -168,7 +168,9 @@ impl LoadBalancer {
                                 }
                             }
 
-                            sleep(Duration::from_secs(1));
+                            if !exit.load(Ordering::Relaxed) {
+                                sleep(Duration::from_secs(1));
+                            }
                         }
                     })
                     .unwrap()
