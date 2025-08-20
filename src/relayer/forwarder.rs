@@ -54,9 +54,9 @@ impl Forwarder {
                     let res = Self::run_event_loop(
                         delay_packet_receiver,
                         packet_subscriptions,
-                        exit,
+                        &exit,
                     );
-                    if let Err(err) = res {
+                    if !exit.load(Ordering::Relaxed) && let Err(err) = res {
                         error!("RelayerImpl thread exited with result {err}")
                     }
                 })
@@ -78,7 +78,7 @@ impl Forwarder {
     fn run_event_loop(
         delay_packet_receiver: crossbeam_channel::Receiver<BankingPacketBatch>,
         packet_subscriptions: PacketSubscriptions,
-        exit: Arc<AtomicBool>,
+        exit: &Arc<AtomicBool>,
     ) -> Result<(), String>  {
         let heartbeat_tick = crossbeam_channel::tick(Duration::from_millis(100));
         let mut heartbeat_count = 0;

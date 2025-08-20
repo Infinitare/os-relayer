@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use agave_banking_stage_ingress_types::BankingPacketBatch;
+use crossbeam_channel::RecvTimeoutError;
 use futures_util::{StreamExt};
 use log::{debug, error, info};
 use solana_perf::packet::{PacketBatch, PinnedPacketBatch};
@@ -107,6 +108,7 @@ impl Client {
         self.connected.store(true, Ordering::Relaxed);
         info!("Connected to proxy");
 
+        let closed = Arc::new(AtomicBool::new(false));
         let subscription_join = self.handle_subscriptions(
             rt,
             packet_stream,
@@ -114,7 +116,8 @@ impl Client {
             jito_bundles_stream,
             jito_bundle_sender.clone(),
             jito_packets_stream,
-            jito_packets_sender.clone()
+            jito_packets_sender.clone(),
+            &closed,
         );
 
         let streaming_join = self.handle_streaming(
@@ -124,6 +127,7 @@ impl Client {
             internal_proxy_packet_receiver,
             internal_proxy_jito_bundle_receiver,
             internal_proxy_jito_packets_receiver,
+            &closed,
         );
 
         streaming_join.await.map_err(|e| e.to_string())?;
@@ -140,11 +144,13 @@ impl Client {
         jito_bundle_sender: broadcast::Sender<SubscribeBundlesResponse>,
         jito_packets_stream: Streaming<SubscribePacketsResponse>,
         jito_packets_sender: broadcast::Sender<SubscribePacketsResponse>,
+        closed: &Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         let exit = self.exit.clone();
         let packets_join = Self::subscription_thread(
             rt.clone(),
             exit.clone(),
+            closed.clone(),
             packet_stream,
             move |packet| {
                 let batch = match packet.batch {
@@ -164,6 +170,7 @@ impl Client {
         let jito_bundles_join = Self::subscription_thread(
             rt.clone(),
             exit.clone(),
+            closed.clone(),
             jito_bundles_stream,
             move |bundle| {
                 jito_bundle_sender.send(bundle).map_err(|e| format!("Failed to send jito bundle: {}", e))?;
@@ -174,6 +181,7 @@ impl Client {
         let jito_packets_join = Self::subscription_thread(
             rt.clone(),
             exit.clone(),
+            closed.clone(),
             jito_packets_stream,
             move |packet| {
                 jito_packets_sender.send(packet).map_err(|e| format!("Failed to send jito packet: {}", e))?;
@@ -189,6 +197,7 @@ impl Client {
     async fn subscription_thread<T, F>(
         rt: tokio::runtime::Handle,
         exit: Arc<AtomicBool>,
+        closed: Arc<AtomicBool>,
         mut stream: Streaming<T>,
         sender: F,
     ) -> JoinHandle<()>
@@ -201,7 +210,7 @@ impl Client {
             loop {
                 tokio::select! {
                     _ = tick.tick() => {
-                        if exit.load(Ordering::Relaxed) {
+                        if exit.load(Ordering::Relaxed) || closed.load(Ordering::Relaxed) {
                             break;
                         }
                     },
@@ -231,6 +240,8 @@ impl Client {
                     }
                 }
             }
+
+            closed.store(true, Ordering::Relaxed);
         })
     }
 
@@ -242,26 +253,30 @@ impl Client {
         internal_proxy_packet_receiver: &crossbeam_channel::Receiver<BankingPacketBatch>,
         internal_proxy_jito_bundle_receiver: &crossbeam_channel::Receiver<SubscribeBundlesResponse>,
         internal_proxy_jito_packets_receiver: &crossbeam_channel::Receiver<SubscribePacketsResponse>,
+        closed: &Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         let packet_stream = Self::stream_packets(
             rt.clone(),
             client.clone(),
             header.clone(),
-            internal_proxy_packet_receiver.clone()
+            internal_proxy_packet_receiver.clone(),
+            closed.clone(),
         );
 
         let jito_bundle_stream = Self::stream_jito_bundles(
             rt.clone(),
             client.clone(),
             header.clone(),
-            internal_proxy_jito_bundle_receiver.clone()
+            internal_proxy_jito_bundle_receiver.clone(),
+            closed.clone(),
         );
 
         let jito_packets_stream = Self::stream_jito_packets(
             rt.clone(),
             client,
             header,
-            internal_proxy_jito_packets_receiver.clone()
+            internal_proxy_jito_packets_receiver.clone(),
+            closed.clone(),
         );
 
         rt.spawn(async move {
@@ -274,6 +289,7 @@ impl Client {
         mut client: InfServiceClient<Channel>,
         header: inf::Header,
         internal_proxy_packet_receiver: crossbeam_channel::Receiver<BankingPacketBatch>,
+        closed: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         rt.spawn(async move {
             let (tx, rx_mpsc) = mpsc::channel::<inf::StreamPacketsRequest>(256);
@@ -286,22 +302,40 @@ impl Client {
                 kind: Some(inf::stream_packets_request::Kind::Header(header)),
             }).await;
 
-            while let Ok(pkt) = internal_proxy_packet_receiver.recv() {
-                for batch in pkt.iter() {
-                    let packet_batch = packet::PacketBatch {
-                        packets: batch.iter().filter_map(packet_to_proto_packet).collect(),
-                    };
+            loop {
+                match internal_proxy_packet_receiver.recv_timeout(std::time::Duration::from_millis(100)) {
+                    Ok(pkt) => {
+                        for batch in pkt.iter() {
+                            let packet_batch = packet::PacketBatch {
+                                packets: batch.iter().filter_map(packet_to_proto_packet).collect(),
+                            };
 
-                    if let Err(err) = tx.send(inf::StreamPacketsRequest {
-                        kind: Some(inf::stream_packets_request::Kind::Batch(packet_batch)),
-                    }).await {
-                        error!("Failed to send packet batch to stream {}", err);
-                        break;
+                            if let Err(err) = tx.send(inf::StreamPacketsRequest {
+                                kind: Some(inf::stream_packets_request::Kind::Batch(packet_batch)),
+                            }).await {
+                                error!("Failed to send packet batch to stream {}", err);
+                                break;
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        if err == RecvTimeoutError::Timeout {
+                            if closed.load(Ordering::Relaxed) {
+                                break;
+                            }
+
+                            continue;
+                        } else {
+                            info!("Channel closed with: {}", err);
+                            break;
+                        }
                     }
                 }
             }
 
+            closed.store(true, Ordering::Relaxed);
             drop(tx);
+
             if let Err(err) = rpc.await {
                 error!("RPC stream failed: {}", err);
             }
@@ -313,6 +347,7 @@ impl Client {
         mut client: InfServiceClient<Channel>,
         header: inf::Header,
         internal_proxy_packet_receiver: crossbeam_channel::Receiver<SubscribeBundlesResponse>,
+        closed: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         rt.spawn(async move {
             let (tx, rx_mpsc) = mpsc::channel::<inf::StreamBundlesRequest>(256);
@@ -325,16 +360,34 @@ impl Client {
                 kind: Some(inf::stream_bundles_request::Kind::Header(header)),
             }).await;
 
-            while let Ok(pkt) = internal_proxy_packet_receiver.recv() {
-                if let Err(err) = tx.send(inf::StreamBundlesRequest {
-                    kind: Some(inf::stream_bundles_request::Kind::Bundle(pkt)),
-                }).await {
-                    error!("Failed to send packet batch to stream {}", err);
-                    break;
+            loop {
+                match internal_proxy_packet_receiver.recv_timeout(std::time::Duration::from_millis(100)) {
+                    Ok(pkt) => {
+                        if let Err(err) = tx.send(inf::StreamBundlesRequest {
+                            kind: Some(inf::stream_bundles_request::Kind::Bundle(pkt)),
+                        }).await {
+                            error!("Failed to send packet batch to stream {}", err);
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        if err == RecvTimeoutError::Timeout {
+                            if closed.load(Ordering::Relaxed) {
+                                break;
+                            }
+
+                            continue;
+                        } else {
+                            info!("Channel closed with: {}", err);
+                            break;
+                        }
+                    }
                 }
             }
 
+            closed.store(true, Ordering::Relaxed);
             drop(tx);
+
             if let Err(err) = rpc.await {
                 error!("RPC stream failed: {}", err);
             }
@@ -346,6 +399,7 @@ impl Client {
         mut client: InfServiceClient<Channel>,
         header: inf::Header,
         internal_proxy_packet_receiver: crossbeam_channel::Receiver<SubscribePacketsResponse>,
+        closed: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         rt.spawn(async move {
             let (tx, rx_mpsc) = mpsc::channel::<inf::StreamPacketsRequest>(256);
@@ -358,20 +412,38 @@ impl Client {
                 kind: Some(inf::stream_packets_request::Kind::Header(header)),
             }).await;
 
-            while let Ok(pkt) = internal_proxy_packet_receiver.recv() {
-                if pkt.batch.is_none() {
-                    continue;
-                }
+            loop {
+                match internal_proxy_packet_receiver.recv_timeout(std::time::Duration::from_millis(100)) {
+                    Ok(pkt) => {
+                        if pkt.batch.is_none() {
+                            continue;
+                        }
 
-                if let Err(err) = tx.send(inf::StreamPacketsRequest {
-                    kind: Some(inf::stream_packets_request::Kind::Batch(pkt.batch.unwrap())),
-                }).await {
-                    error!("Failed to send packet batch to stream {}", err);
-                    break;
+                        if let Err(err) = tx.send(inf::StreamPacketsRequest {
+                            kind: Some(inf::stream_packets_request::Kind::Batch(pkt.batch.unwrap())),
+                        }).await {
+                            error!("Failed to send packet batch to stream {}", err);
+                            break;
+                        }
+                    }
+                    Err(err) => {
+                        if err == RecvTimeoutError::Timeout {
+                            if closed.load(Ordering::Relaxed) {
+                                break;
+                            }
+
+                            continue;
+                        } else {
+                            info!("Channel closed with: {}", err);
+                            break;
+                        }
+                    }
                 }
             }
 
+            closed.store(true, Ordering::Relaxed);
             drop(tx);
+
             if let Err(err) = rpc.await {
                 error!("RPC stream failed: {}", err);
             }
