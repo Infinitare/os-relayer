@@ -25,9 +25,7 @@ RestartSec=0
 ExecStart=/etc/relayer/os-relayer \
           --keypair-path=/etc/relayer/keys/relayer-keypair.json \
           --signing-key-pem-path=/etc/relayer/keys/private.pem \
-          --verifying-key-pem-path=/etc/relayer/keys/public.pem \
-          --staked-nodes-overrides /etc/swqos/overrides.yml \
-          --forward-all
+          --verifying-key-pem-path=/etc/relayer/keys/public.pem
 
 [Install]
 WantedBy=multi-user.target

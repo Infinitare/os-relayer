@@ -113,3 +113,13 @@ agave-validator --ledger /mnt/ledger/ set-relayer-config --relayer-url http://12
 ```
 
 That's it, you should now have a running Relayer!
+
+### Using with SWQOS
+If you want to use the Relayer with SWQOS, please add the same overrides flag you're using for the Validator to the Relayer Service file like
+```bash
+/etc/relayer/os-relayer \
+          --keypair-path=/etc/relayer/keys/relayer-keypair.json \
+          --signing-key-pem-path=/etc/relayer/keys/private.pem \
+          --verifying-key-pem-path=/etc/relayer/keys/public.pem \
+          --staked-nodes-overrides=/etc/swqos/overrides.yml
+```
