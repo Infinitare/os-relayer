@@ -126,7 +126,7 @@ fn main() {
         let entrypoint = solana_net_utils::parse_host_port("entrypoint.mainnet-beta.solana.com:8001")
             .expect("parse entrypoint");
         info!(
-            "Contacting {} to determine the validator's public IP address",
+            "Contacting {} to determine the relayer's public IP address",
             entrypoint
         );
         solana_net_utils::get_public_ip_addr(&entrypoint).expect("get public ip address")

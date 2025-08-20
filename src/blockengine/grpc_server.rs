@@ -2,7 +2,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 use dashmap::DashMap;
 use futures_util::{future, StreamExt};
-use log::{info, warn};
+use log::{error, info, warn};
 use tokio::sync::broadcast;
 use tonic::codegen::BoxStream;
 use tonic::{Code, Request, Response, Status};
@@ -160,10 +160,17 @@ impl BlockEngineValidator for GrpcServer {
             Err(_) => future::ready(None),
         });
 
-        let mut upstream = self.get_block_engine_client(peer).await?;
+        let mut upstream = match self.get_block_engine_client(peer).await {
+            Ok(client) => client,
+            Err(e) => {
+                error!("Failed to get block engine client: {:?}", e);
+                return Err(e)
+            }
+        };
         let up_resp = match upstream.subscribe_packets(req).await {
             Ok(resp) => resp,
             Err(e) => {
+                error!("Error forwarding packets: {:?}", e);
                 if e.code() != Code::PermissionDenied {
                     return Err(e)
                 }
@@ -173,12 +180,14 @@ impl BlockEngineValidator for GrpcServer {
             }
         };
 
+        info!("SUCCESS 1");
         forwarder(
             up_resp.into_inner(),
             self.packets_sender_from_blockengine.clone(),
             self.rt.clone(),
         );
 
+        info!("SUCCESS 2");
         Ok(Self::make_response(local_stream))
     }
 
