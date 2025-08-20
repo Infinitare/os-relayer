@@ -1,9 +1,10 @@
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 use dashmap::DashMap;
 use futures_util::{future, StreamExt, TryStreamExt};
-use log::{info, warn};
+use log::{error, info, warn};
 use tokio::sync::broadcast;
 use tonic::codegen::BoxStream;
 use tonic::{Code, Request, Response, Status};
@@ -140,7 +141,7 @@ where
                 _ = maintenance_tick.tick() => {
                     info!("maintenance tick {}", exit.load(std::sync::atomic::Ordering::Relaxed));
                     if exit.load(std::sync::atomic::Ordering::Relaxed) {
-                        warn!("Exiting forwarder task due to shutdown signal.");
+                        info!("Exiting forwarder task due to shutdown signal.");
                         return;
                     }
                 }
@@ -149,28 +150,48 @@ where
                         match item {
                             Ok(packet) => {
                                 if let Err(e) = forward_sender.send(packet) {
-                                    warn!("Error forwarding packet: {:?}", e);
+                                    error!("Error forwarding packet: {:?}", e);
                                 }
 
                                 while let Ok(Some(item)) = upstream.try_next().await {
                                     if let Err(e) = forward_sender.send(item) {
-                                        warn!("Error forwarding packet: {:?}", e);
+                                        error!("Error forwarding packet: {:?}", e);
                                         break;
                                     }
                                 }
                             }
                             Err(e) => {
-                                warn!("Error receiving packet: {:?}", e);
+                                error!("Error receiving packet: {:?}", e);
                             }
                         }
                     } else {
-                        warn!("Upstream stream ended unexpectedly.");
+                        error!("Upstream stream ended unexpectedly.");
                         return;
                     }
                 }
             }
         }
     });
+}
+
+fn shutdown_future(exit: Arc<AtomicBool>) -> impl Future<Output = ()> + Send + 'static {
+    async move {
+        // Poll until exit flips to true
+        while !exit.load(Ordering::Relaxed) {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+}
+
+fn make_local_stream<T: Send + Clone + 'static>(
+    rx: broadcast::Receiver<T>,
+    exit: &Arc<AtomicBool>,
+) -> BoxStream<T> {
+    let shutdown = shutdown_future(exit.clone());
+    let s = BroadcastStream::new(rx)
+        .filter_map(|res| futures_util::future::ready(res.ok().map(Ok)))
+        .take_until(shutdown);
+    Box::pin(s)
 }
 
 #[tonic::async_trait]
@@ -185,10 +206,7 @@ impl BlockEngineValidator for GrpcServer {
         let peer = req.remote_addr();
 
         let local_rx = self.packets_sender_from_proxy.subscribe();
-        let local_stream = BroadcastStream::new(local_rx).filter_map(|res| match res {
-            Ok(item) => future::ready(Some(Ok(item))),
-            Err(_) => future::ready(None),
-        });
+        let local_stream = make_local_stream(local_rx, &self.exit);
 
         let mut upstream = self.get_block_engine_client(peer).await?;
         let up_resp = match upstream.subscribe_packets(req).await {
@@ -223,10 +241,7 @@ impl BlockEngineValidator for GrpcServer {
         let peer = req.remote_addr();
 
         let local_rx = self.bundles_sender_from_proxy.subscribe();
-        let local_stream = BroadcastStream::new(local_rx).filter_map(|res| match res {
-            Ok(item) => future::ready(Some(Ok(item))),
-            Err(_) => future::ready(None),
-        });
+        let local_stream = make_local_stream(local_rx, &self.exit);
 
         let mut upstream = self.get_block_engine_client(peer).await?;
         let up_resp = match upstream.subscribe_bundles(req).await {
