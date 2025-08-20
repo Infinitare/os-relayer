@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use dashmap::DashMap;
-use futures_util::{StreamExt, TryStreamExt};
+use futures_util::{StreamExt};
 use log::{error, info, warn};
 use tokio::sync::broadcast;
 use tonic::codegen::BoxStream;
@@ -150,13 +150,6 @@ where
                             Ok(packet) => {
                                 if let Err(e) = forward_sender.send(packet) {
                                     error!("Error forwarding packet: {:?}", e);
-                                }
-
-                                while let Ok(Some(item)) = upstream.try_next().await {
-                                    if let Err(e) = forward_sender.send(item) {
-                                        error!("Error forwarding packet: {:?}", e);
-                                        break;
-                                    }
                                 }
                             }
                             Err(e) => {

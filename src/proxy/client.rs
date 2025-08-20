@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use agave_banking_stage_ingress_types::BankingPacketBatch;
-use futures_util::{StreamExt, TryStreamExt};
+use futures_util::{StreamExt};
 use log::{debug, error, info};
 use solana_perf::packet::{PacketBatch, PinnedPacketBatch};
 use tokio::sync::{broadcast, mpsc};
@@ -213,13 +213,6 @@ impl Client {
                                         if let Err(err) = sender(packet) {
                                             error!("Failed to send message: {}", err);
                                             break;
-                                        }
-
-                                        while let Ok(Some(packet)) = stream.try_next().await {
-                                            if let Err(err) = sender(packet) {
-                                                error!("Failed to send message: {}", err);
-                                                break;
-                                            }
                                         }
                                     },
                                     Err(err) => {
