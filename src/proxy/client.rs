@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use agave_banking_stage_ingress_types::BankingPacketBatch;
+use futures_util::{StreamExt, TryStreamExt};
 use log::{debug, error, info};
 use solana_perf::packet::{PacketBatch, PinnedPacketBatch};
 use tokio::sync::{broadcast, mpsc};
@@ -201,24 +202,33 @@ impl Client {
                             break;
                         }
                     },
-                    packet = stream.message() => {
+                    packet = stream.next() => {
                         match packet {
-                            Ok(packet) => {
+                            Some(packet) => {
                                 match packet {
-                                    Some(packet) => {
+                                    Ok(packet) => {
                                         if let Err(err) = sender(packet) {
                                             error!("Failed to send message: {}", err);
                                             break;
                                         }
+
+                                        while let Ok(Some(packet)) = stream.try_next().await {
+                                            if let Err(err) = sender(packet) {
+                                                error!("Failed to send message: {}", err);
+                                                break;
+                                            }
+                                        }
                                     },
-                                    None => {
-                                        info!("Stream ended");
+                                    Err(err) => {
+                                        if !exit.load(Ordering::Relaxed) {
+                                            error!("Error receiving message: {}", err);
+                                        }
                                         break;
                                     }
                                 }
                             },
-                            Err(err) => {
-                                error!("Error receiving message: {}", err);
+                            None => {
+                                info!("Stream ended");
                                 break;
                             }
                         }
