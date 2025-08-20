@@ -133,8 +133,11 @@ where
 {
     rt.spawn(async move {
         let mut maintenance_tick = tokio::time::interval(std::time::Duration::from_millis(100));
+        maintenance_tick.tick().await;
+
         tokio::select! {
             _ = maintenance_tick.tick() => {
+                info!("maintenance tick {}", exit.load(std::sync::atomic::Ordering::Relaxed));
                 if exit.load(std::sync::atomic::Ordering::Relaxed) {
                     warn!("Exiting forwarder task due to shutdown signal.");
                     return;
