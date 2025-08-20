@@ -100,6 +100,18 @@ If everything works, you can enable the Service to start on boot
 sudo systemctl enable os-relayer.service
 ```
 
+And make sure you have whitelisted the following Ports in your Firewall
+```bash
+sudo ufw allow 11228
+sudo ufw allow 11229
+```
+
+If you're running the Relayer on a different Server, you also need to allow the following Ports
+```bash
+sudo ufw allow 11225
+sudo ufw allow 11226
+```
+
 Lastly, you have to add the following lines to your Startup Script
 ```
   --block-engine-url "http://127.0.0.1:11225/" \

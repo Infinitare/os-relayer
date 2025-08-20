@@ -502,12 +502,15 @@ impl Client {
                         }
                     },
                     recv(receiver) -> res => {
+                        let current_timestamp_millis = chrono::Utc::now().timestamp_millis();
                         match res {
                             Ok(packet) => {
                                 if let Err(err) = send(packet, cached_direct_redirect) {
                                     error!("Failed to redirect message: {}", err);
                                     break;
                                 }
+                                let elapsed = chrono::Utc::now().timestamp_millis() - current_timestamp_millis;
+                                debug!("Message redirected in {}ms - direct_redirect: {}", elapsed, cached_direct_redirect);
                             }
                             Err(err) => {
                                 if !exit_clone.load(Ordering::Relaxed) {
