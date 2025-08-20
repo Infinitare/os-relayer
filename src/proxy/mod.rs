@@ -40,7 +40,7 @@ impl Proxy {
 
         info!("Connecting Proxy to {}", proxy);
         let client = Client::new(
-            signed.to_string().as_bytes().to_vec(),
+            signed.as_array().to_vec(),
             Endpoint::from_str(proxy).expect("valid proxy url"),
             &exit,
         );
