@@ -135,36 +135,38 @@ where
         let mut maintenance_tick = tokio::time::interval(std::time::Duration::from_millis(100));
         maintenance_tick.tick().await;
 
-        tokio::select! {
-            _ = maintenance_tick.tick() => {
-                info!("maintenance tick {}", exit.load(std::sync::atomic::Ordering::Relaxed));
-                if exit.load(std::sync::atomic::Ordering::Relaxed) {
-                    warn!("Exiting forwarder task due to shutdown signal.");
-                    return;
+        loop {
+            tokio::select! {
+                _ = maintenance_tick.tick() => {
+                    info!("maintenance tick {}", exit.load(std::sync::atomic::Ordering::Relaxed));
+                    if exit.load(std::sync::atomic::Ordering::Relaxed) {
+                        warn!("Exiting forwarder task due to shutdown signal.");
+                        return;
+                    }
                 }
-            }
-            res = upstream.next() => {
-                if let Some(item) = res {
-                    match item {
-                        Ok(packet) => {
-                            if let Err(e) = forward_sender.send(packet) {
-                                warn!("Error forwarding packet: {:?}", e);
-                            }
-
-                            while let Ok(Some(item)) = upstream.try_next().await {
-                                if let Err(e) = forward_sender.send(item) {
+                res = upstream.next() => {
+                    if let Some(item) = res {
+                        match item {
+                            Ok(packet) => {
+                                if let Err(e) = forward_sender.send(packet) {
                                     warn!("Error forwarding packet: {:?}", e);
-                                    break;
+                                }
+
+                                while let Ok(Some(item)) = upstream.try_next().await {
+                                    if let Err(e) = forward_sender.send(item) {
+                                        warn!("Error forwarding packet: {:?}", e);
+                                        break;
+                                    }
                                 }
                             }
+                            Err(e) => {
+                                warn!("Error receiving packet: {:?}", e);
+                            }
                         }
-                        Err(e) => {
-                            warn!("Error receiving packet: {:?}", e);
-                        }
+                    } else {
+                        warn!("Upstream stream ended unexpectedly.");
+                        return;
                     }
-                } else {
-                    warn!("Upstream stream ended unexpectedly.");
-                    return;
                 }
             }
         }
