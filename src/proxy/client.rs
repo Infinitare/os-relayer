@@ -358,7 +358,7 @@ impl Client {
             let (tx, rx_mpsc) = mpsc::channel::<inf::StreamPacketsRequest>(256);
             let rpc = tokio::spawn(async move {
                 let stream = ReceiverStream::new(rx_mpsc);
-                client.stream_packets(Request::new(stream)).await
+                client.stream_jito_packets(Request::new(stream)).await
             });
 
             let _ = tx.send(inf::StreamPacketsRequest {
