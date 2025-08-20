@@ -50,6 +50,11 @@ After that, we'll send you the following information you need in the next steps:
 - Signing String
 
 In the meantime, you can finish the rest of the installation
+Clone the repository
+```bash
+git clone https://github.com/Infinitare/os-relayer.git
+```
+
 Navigate into the cloned repository and build the application
 ```bash
 cd os-relayer && cargo build --release
