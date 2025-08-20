@@ -14,7 +14,6 @@ Type=exec
 User=root
 Restart=on-failure
 Environment=RUST_LOG=info
-Environment=SOLANA_METRICS_CONFIG="host=http://metrics.jito.wtf:8086,db=relayer,u=relayer-operators,p=jito-relayer-write"
 Environment=RPC_SERVER=http://127.0.0.1:8899
 Environment=WEBSOCKET_SERVER=ws://127.0.0.1:8900
 Environment=JITO_BLOCKENGINE=
