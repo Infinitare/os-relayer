@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use agave_banking_stage_ingress_types::BankingPacketBatch;
-use log::{error, info};
+use log::{debug, error, info};
 use solana_perf::packet::{PacketBatch, PinnedPacketBatch};
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
@@ -410,6 +410,7 @@ impl Client {
                 &direct_redirect,
                 packet_receiver,
                 move |packet, cached_direct_redirect| {
+                    debug!("Received packet - direct_redirect: {}", cached_direct_redirect);
                     if cached_direct_redirect {
                         packet_sender
                             .send(packet)
@@ -428,6 +429,7 @@ impl Client {
                 &direct_redirect,
                 jito_bundle_receiver,
                 move |packet, cached_direct_redirect| {
+                    debug!("Received jito bundle - direct_redirect: {}", cached_direct_redirect);
                     if cached_direct_redirect {
                         jito_bundle_sender
                             .send(packet)
@@ -447,6 +449,7 @@ impl Client {
                 &direct_redirect,
                 jito_packets_receiver,
                 move |packet, cached_direct_redirect| {
+                    debug!("Received jito packet - direct_redirect: {}", cached_direct_redirect);
                     if cached_direct_redirect {
                         jito_packets_sender
                             .send(packet)

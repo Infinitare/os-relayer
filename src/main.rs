@@ -12,7 +12,7 @@ use std::sync::{Arc};
 use agave_validator::admin_rpc_service::StakedNodesOverrides;
 use clap::Parser;
 use env_logger::Env;
-use log::{info};
+use log::{debug, info};
 use solana_sdk::signature::read_keypair_file;
 use solana_sdk::signer::Signer;
 use tokio::runtime::Builder;
@@ -100,6 +100,7 @@ fn main() {
         .init();
 
     let args: Args = Args::parse();
+    debug!("Debug logging enabled");
     info!("Starting Relayer v{} with Jito Blockengine: {} and Proxy: {}", env!("CARGO_PKG_VERSION"), args.jito_blockengine, args.proxy);
     info!("Starting TPU Quic Port: {} and TPU Quic Forward Port: {}", args.tpu_quic_port, args.tpu_quic_fwd_port);
 
