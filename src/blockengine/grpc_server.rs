@@ -160,6 +160,7 @@ impl BlockEngineValidator for GrpcServer {
             Err(_) => future::ready(None),
         });
 
+        info!("Local stream created for packets from proxy: {:?}", local_stream);
         let mut upstream = match self.get_block_engine_client(peer).await {
             Ok(client) => client,
             Err(e) => {
@@ -167,6 +168,8 @@ impl BlockEngineValidator for GrpcServer {
                 return Err(e)
             }
         };
+
+        info!("Upstream client created for packets: {:?}", upstream);
         let up_resp = match upstream.subscribe_packets(req).await {
             Ok(resp) => resp,
             Err(e) => {
