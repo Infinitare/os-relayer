@@ -40,6 +40,7 @@ impl Blockengine {
             bundles_sender_from_blockengine.clone(),
             packets_sender_from_proxy.clone(),
             packets_sender_from_blockengine.clone(),
+            exit
         );
 
         let server_addr = SocketAddr::new(grpc_bind_ip.clone(), blockengine_bind_port);

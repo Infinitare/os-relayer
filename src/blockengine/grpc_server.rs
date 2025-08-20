@@ -1,8 +1,9 @@
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use dashmap::DashMap;
-use futures_util::{future, StreamExt};
-use log::{error, info, warn};
+use futures_util::{future, StreamExt, TryStreamExt};
+use log::{info, warn};
 use tokio::sync::broadcast;
 use tonic::codegen::BoxStream;
 use tonic::{Code, Request, Response, Status};
@@ -17,16 +18,18 @@ use crate::protos::block_engine::block_engine_validator_client::BlockEngineValid
 
 #[derive(Clone)]
 pub struct GrpcServer {
-    pub block_engine_url: String,
-    pub rt: tokio::runtime::Handle,
+    block_engine_url: String,
+    rt: tokio::runtime::Handle,
 
-    pub client_pool: Arc<DashMap<IpAddr, BlockEngineValidatorClient<Channel>>>,
-    pub auth_pool: Arc<DashMap<IpAddr, AuthServiceClient<Channel>>>,
+    client_pool: Arc<DashMap<IpAddr, BlockEngineValidatorClient<Channel>>>,
+    auth_pool: Arc<DashMap<IpAddr, AuthServiceClient<Channel>>>,
 
-    pub bundles_sender_from_proxy: broadcast::Sender<SubscribeBundlesResponse>,
-    pub bundles_sender_from_blockengine: crossbeam_channel::Sender<SubscribeBundlesResponse>,
-    pub packets_sender_from_proxy: broadcast::Sender<SubscribePacketsResponse>,
-    pub packets_sender_from_blockengine: crossbeam_channel::Sender<SubscribePacketsResponse>,
+    bundles_sender_from_proxy: broadcast::Sender<SubscribeBundlesResponse>,
+    bundles_sender_from_blockengine: crossbeam_channel::Sender<SubscribeBundlesResponse>,
+    packets_sender_from_proxy: broadcast::Sender<SubscribePacketsResponse>,
+    packets_sender_from_blockengine: crossbeam_channel::Sender<SubscribePacketsResponse>,
+
+    exit: Arc<AtomicBool>,
 }
 
 impl GrpcServer {
@@ -37,6 +40,7 @@ impl GrpcServer {
         bundles_sender_from_blockengine: crossbeam_channel::Sender<SubscribeBundlesResponse>,
         packets_sender_from_proxy: broadcast::Sender<SubscribePacketsResponse>,
         packets_sender_from_blockengine: crossbeam_channel::Sender<SubscribePacketsResponse>,
+        exit: &Arc<AtomicBool>,
     ) -> Self {
         let client_pool = Arc::new(DashMap::new());
         let auth_pool = Arc::new(DashMap::new());
@@ -50,6 +54,7 @@ impl GrpcServer {
             bundles_sender_from_blockengine,
             packets_sender_from_proxy,
             packets_sender_from_blockengine,
+            exit: exit.clone(),
         }
     }
 
@@ -121,22 +126,42 @@ fn forwarder<T>(
     mut upstream: tonic::Streaming<T>,
     forward_sender: crossbeam_channel::Sender<T>,
     rt: tokio::runtime::Handle,
+    exit: Arc<AtomicBool>,
 )
 where
     T: Clone + Send + 'static + std::fmt::Debug,
 {
     rt.spawn(async move {
-        while let Some(item) = upstream.next().await {
-            match item {
-                Ok(packet) => {
-                    if let Err(e) = forward_sender.send(packet) {
-                        warn!("Error forwarding packet: {:?}", e);
-                        break;
-                    }
+        let mut maintenance_tick = tokio::time::interval(std::time::Duration::from_millis(100));
+        tokio::select! {
+            _ = maintenance_tick.tick() => {
+                if exit.load(std::sync::atomic::Ordering::Relaxed) {
+                    warn!("Exiting forwarder task due to shutdown signal.");
+                    return;
                 }
-                Err(e) => {
-                    warn!("Error receiving packet: {:?}", e);
-                    break;
+            }
+            res = upstream.next() => {
+                if let Some(item) = res {
+                    match item {
+                        Ok(packet) => {
+                            if let Err(e) = forward_sender.send(packet) {
+                                warn!("Error forwarding packet: {:?}", e);
+                            }
+
+                            while let Ok(Some(item)) = upstream.try_next().await {
+                                if let Err(e) = forward_sender.send(item) {
+                                    warn!("Error forwarding packet: {:?}", e);
+                                    break;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            warn!("Error receiving packet: {:?}", e);
+                        }
+                    }
+                } else {
+                    warn!("Upstream stream ended unexpectedly.");
+                    return;
                 }
             }
         }
@@ -160,20 +185,10 @@ impl BlockEngineValidator for GrpcServer {
             Err(_) => future::ready(None),
         });
 
-        info!("Local stream created for packets from proxy: {:?}", local_stream);
-        let mut upstream = match self.get_block_engine_client(peer).await {
-            Ok(client) => client,
-            Err(e) => {
-                error!("Failed to get block engine client: {:?}", e);
-                return Err(e)
-            }
-        };
-
-        info!("Upstream client created for packets: {:?}", upstream);
+        let mut upstream = self.get_block_engine_client(peer).await?;
         let up_resp = match upstream.subscribe_packets(req).await {
             Ok(resp) => resp,
             Err(e) => {
-                error!("Error forwarding packets: {:?}", e);
                 if e.code() != Code::PermissionDenied {
                     return Err(e)
                 }
@@ -183,14 +198,13 @@ impl BlockEngineValidator for GrpcServer {
             }
         };
 
-        info!("SUCCESS 1");
         forwarder(
             up_resp.into_inner(),
             self.packets_sender_from_blockengine.clone(),
             self.rt.clone(),
+            self.exit.clone(),
         );
 
-        info!("SUCCESS 2");
         Ok(Self::make_response(local_stream))
     }
 
@@ -226,6 +240,7 @@ impl BlockEngineValidator for GrpcServer {
             up_resp.into_inner(),
             self.bundles_sender_from_blockengine.clone(),
             self.rt.clone(),
+            self.exit.clone(),
         );
 
         Ok(Self::make_response(local_stream))
