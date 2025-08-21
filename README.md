@@ -24,6 +24,7 @@ sudo mkdir -p /etc/relayer/keys
 ```
 
 Create a Solana Keypair - this will be used to verify against our Server
+The Keypair does NOT have to be verified by Jito
 ```bash
 solana-keygen new --no-bip39-passphrase --outfile relayer-keypair.json
 ```
