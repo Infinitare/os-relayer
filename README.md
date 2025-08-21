@@ -129,6 +129,20 @@ agave-validator --ledger /mnt/ledger/ set-block-engine-config --block-engine-url
 agave-validator --ledger /mnt/ledger/ set-relayer-config --relayer-url http://127.0.0.1:11226
 ```
 
+To see if everything is working fine, you can check if the Relayer received subscriptions from the Validator
+```bash
+sudo journalctl -u os-relayer.service -n 100000 | grep "Received"
+```
+
+If you see any messages and the Blockengine is connected.
+To check if the Relayer is connected, you can check your Validator Ports using
+```bash
+solana gossip
+```
+
+If you see, that your Validator is using the Ports 11222 and 11228 - everything is working fine.
+Keep in mind, that it can take a few minutes until it shows in the gossip, so be patient.
+
 That's it, you should now have a running Relayer!
 
 ### Using with SWQOS
