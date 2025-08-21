@@ -1,6 +1,6 @@
 # HOW TO INSTALL
 
-### If you have any Questions, feel free to contact us on Telegram.
+### If you have any Questions, feel free to contact us on Telegram @ivanlegendx
 The relayer is designed to connect to exactly one Validator. We recommend installing it on the same machine as the Validator to ensure they share the same IP.
 
 Before installation, make sure the following tools are installed on your machine:
