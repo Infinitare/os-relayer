@@ -304,7 +304,7 @@ impl Client {
                 kind: Some(inf::stream_packets_request::Kind::Header(header)),
             }).await;
 
-            loop {
+            'outer: loop {
                 match internal_proxy_packet_receiver.recv_timeout(std::time::Duration::from_millis(100)) {
                     Ok(pkt) => {
                         for batch in pkt.iter() {
@@ -316,7 +316,7 @@ impl Client {
                                 kind: Some(inf::stream_packets_request::Kind::Batch(packet_batch)),
                             }).await {
                                 error!("Failed to send packet batch to stream {}", err);
-                                break;
+                                break 'outer;
                             }
                         }
                     }
