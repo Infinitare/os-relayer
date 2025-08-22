@@ -242,6 +242,7 @@ impl Client {
             }
 
             closed.store(true, Ordering::Relaxed);
+            info!("Subscription stream closed");
         })
     }
 
@@ -291,9 +292,10 @@ impl Client {
         internal_proxy_packet_receiver: crossbeam_channel::Receiver<BankingPacketBatch>,
         closed: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
+        let rt_clone = rt.clone();
         rt.spawn(async move {
             let (tx, rx_mpsc) = mpsc::channel::<inf::StreamPacketsRequest>(256);
-            let rpc = tokio::spawn(async move {
+            rt_clone.spawn(async move {
                 let stream = ReceiverStream::new(rx_mpsc);
                 client.stream_packets(Request::new(stream)).await
             });
@@ -336,9 +338,7 @@ impl Client {
             closed.store(true, Ordering::Relaxed);
             drop(tx);
 
-            if let Err(err) = rpc.await {
-                error!("RPC stream failed: {}", err);
-            }
+            info!("packets stream closed");
         })
     }
 
@@ -349,9 +349,10 @@ impl Client {
         internal_proxy_packet_receiver: crossbeam_channel::Receiver<SubscribeBundlesResponse>,
         closed: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
+        let rt_clone = rt.clone();
         rt.spawn(async move {
             let (tx, rx_mpsc) = mpsc::channel::<inf::StreamBundlesRequest>(256);
-            let rpc = tokio::spawn(async move {
+            rt_clone.spawn(async move {
                 let stream = ReceiverStream::new(rx_mpsc);
                 client.stream_jito_bundles(Request::new(stream)).await
             });
@@ -388,9 +389,7 @@ impl Client {
             closed.store(true, Ordering::Relaxed);
             drop(tx);
 
-            if let Err(err) = rpc.await {
-                error!("RPC stream failed: {}", err);
-            }
+            info!("jito bundle stream closed");
         })
     }
 
@@ -401,9 +400,10 @@ impl Client {
         internal_proxy_packet_receiver: crossbeam_channel::Receiver<SubscribePacketsResponse>,
         closed: Arc<AtomicBool>,
     ) -> JoinHandle<()> {
+        let rt_clone = rt.clone();
         rt.spawn(async move {
             let (tx, rx_mpsc) = mpsc::channel::<inf::StreamPacketsRequest>(256);
-            let rpc = tokio::spawn(async move {
+            rt_clone.spawn(async move {
                 let stream = ReceiverStream::new(rx_mpsc);
                 client.stream_jito_packets(Request::new(stream)).await
             });
@@ -444,9 +444,7 @@ impl Client {
             closed.store(true, Ordering::Relaxed);
             drop(tx);
 
-            if let Err(err) = rpc.await {
-                error!("RPC stream failed: {}", err);
-            }
+            info!("jito packets stream closed");
         })
     }
 
