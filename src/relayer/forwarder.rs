@@ -111,8 +111,8 @@ impl Forwarder {
             Entry::Vacant(entry) => {
                 if len >= 1 {
                     return Err(format!(
-                        "too many subscriptions, max is 1, current: {}",
-                        l_subscriptions.len()
+                        "too many subscriptions, max is 1, currently connected: {:?}",
+                        l_subscriptions
                     ));
                 }
 
