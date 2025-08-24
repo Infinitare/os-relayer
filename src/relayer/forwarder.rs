@@ -112,7 +112,7 @@ impl Forwarder {
                 if len >= 1 {
                     return Err(format!(
                         "too many subscriptions, max is 1, currently connected: {:?}",
-                        l_subscriptions.keys().iter().map(|k| k.to_string()).collect::<Vec<String>>()
+                        l_subscriptions.keys().map(|k| k.to_string()).collect::<Vec<String>>()
                     ));
                 }
 
