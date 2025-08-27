@@ -147,7 +147,7 @@ Keep in mind, that it can take a few minutes until it shows in the gossip, so be
 That's it, you should now have a running Relayer!
 
 ### Using with SWQOS
-If you want to use the Relayer with SWQOS, please add the same overrides flag you're using for the Validator to the Relayer Service file like
+If you want to use the Relayer with SWQOS, please add the same overrides flag you're using for the Validator to the Relayer Service file like this.
 ```bash
 /etc/relayer/os-relayer \
           --keypair-path=/etc/relayer/keys/relayer-keypair.json \
@@ -155,3 +155,4 @@ If you want to use the Relayer with SWQOS, please add the same overrides flag yo
           --verifying-key-pem-path=/etc/relayer/keys/public.pem \
           --staked-nodes-overrides=/etc/swqos/overrides.yml
 ```
+After, point the SWQOS of the RPC Node you want to connect to the Port of the Relayer (11228) and you're set.
