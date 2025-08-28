@@ -154,6 +154,7 @@ where
                             }
                             Err(e) => {
                                 error!("Error receiving packet: {:?}", e);
+                                return;
                             }
                         }
                     } else {
