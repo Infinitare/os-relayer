@@ -14,7 +14,7 @@ use crate::protos::auth::auth_service_server::AuthService;
 use crate::protos::auth::{GenerateAuthChallengeRequest, GenerateAuthChallengeResponse, GenerateAuthTokensRequest, GenerateAuthTokensResponse, RefreshAccessTokenRequest, RefreshAccessTokenResponse};
 use crate::protos::auth::auth_service_client::AuthServiceClient;
 use crate::protos::block_engine::block_engine_validator_server::BlockEngineValidator;
-use crate::protos::block_engine::{BlockBuilderFeeInfoRequest, BlockBuilderFeeInfoResponse, SubscribeBundlesRequest, SubscribeBundlesResponse, SubscribePacketsRequest, SubscribePacketsResponse};
+use crate::protos::block_engine::{BlockBuilderFeeInfoRequest, BlockBuilderFeeInfoResponse, GetBlockEngineEndpointRequest, GetBlockEngineEndpointResponse, SubscribeBundlesRequest, SubscribeBundlesResponse, SubscribePacketsRequest, SubscribePacketsResponse};
 use crate::protos::block_engine::block_engine_validator_client::BlockEngineValidatorClient;
 
 #[derive(Clone)]
@@ -268,6 +268,17 @@ impl BlockEngineValidator for GrpcServer {
         let mut upstream = self.get_block_engine_client(peer).await?;
 
         upstream.get_block_builder_fee_info(req).await
+    }
+
+    async fn get_block_engine_endpoints(
+        &self,
+        req: Request<GetBlockEngineEndpointRequest>,
+    ) -> Result<Response<GetBlockEngineEndpointResponse>, Status> {
+        info!("Received get_block_builder_fee_info request from: {:?}", req.remote_addr());
+        let peer = req.remote_addr();
+        let mut upstream = self.get_block_engine_client(peer).await?;
+
+        upstream.get_block_engine_endpoints(req).await
     }
 }
 
