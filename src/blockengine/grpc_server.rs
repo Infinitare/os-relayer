@@ -14,12 +14,13 @@ use crate::protos::auth::auth_service_server::AuthService;
 use crate::protos::auth::{GenerateAuthChallengeRequest, GenerateAuthChallengeResponse, GenerateAuthTokensRequest, GenerateAuthTokensResponse, RefreshAccessTokenRequest, RefreshAccessTokenResponse};
 use crate::protos::auth::auth_service_client::AuthServiceClient;
 use crate::protos::block_engine::block_engine_validator_server::BlockEngineValidator;
-use crate::protos::block_engine::{BlockBuilderFeeInfoRequest, BlockBuilderFeeInfoResponse, GetBlockEngineEndpointRequest, GetBlockEngineEndpointResponse, SubscribeBundlesRequest, SubscribeBundlesResponse, SubscribePacketsRequest, SubscribePacketsResponse};
+use crate::protos::block_engine::{BlockBuilderFeeInfoRequest, BlockBuilderFeeInfoResponse, BlockEngineEndpoint, GetBlockEngineEndpointRequest, GetBlockEngineEndpointResponse, SubscribeBundlesRequest, SubscribeBundlesResponse, SubscribePacketsRequest, SubscribePacketsResponse};
 use crate::protos::block_engine::block_engine_validator_client::BlockEngineValidatorClient;
 
 #[derive(Clone)]
 pub struct GrpcServer {
     block_engine_url: String,
+    local_blockengine_url: String,
     rt: tokio::runtime::Handle,
 
     client_pool: Arc<DashMap<IpAddr, BlockEngineValidatorClient<Channel>>>,
@@ -37,6 +38,7 @@ impl GrpcServer {
     pub fn new(
         rt: &tokio::runtime::Handle,
         block_engine_url: String,
+        local_blockengine_url: String,
         bundles_sender_from_proxy: broadcast::Sender<SubscribeBundlesResponse>,
         bundles_sender_from_blockengine: crossbeam_channel::Sender<SubscribeBundlesResponse>,
         packets_sender_from_proxy: broadcast::Sender<SubscribePacketsResponse>,
@@ -48,6 +50,7 @@ impl GrpcServer {
 
         GrpcServer {
             block_engine_url,
+            local_blockengine_url,
             rt: rt.clone(),
             client_pool,
             auth_pool,
@@ -277,8 +280,22 @@ impl BlockEngineValidator for GrpcServer {
         info!("Received get_block_builder_fee_info request from: {:?}", req.remote_addr());
         let peer = req.remote_addr();
         let mut upstream = self.get_block_engine_client(peer).await?;
-
-        upstream.get_block_engine_endpoints(req).await
+        
+        let jito_res = upstream.get_block_engine_endpoints(req).await?.into_inner();
+        let res = GetBlockEngineEndpointResponse {
+            global_endpoint: jito_res.global_endpoint.map(|global| BlockEngineEndpoint {
+                block_engine_url: self.local_blockengine_url.clone(),
+                shredstream_receiver_address: global.shredstream_receiver_address,
+            }),
+            regioned_endpoints: jito_res.regioned_endpoints.iter().map(|endpoint| {
+                BlockEngineEndpoint {
+                    block_engine_url: self.local_blockengine_url.clone(),
+                    shredstream_receiver_address: endpoint.shredstream_receiver_address.clone(),
+                }
+            }).collect(),
+        };
+        
+        Ok(Response::new(res))
     }
 }
 

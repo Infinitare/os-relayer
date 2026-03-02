@@ -25,6 +25,7 @@ impl Blockengine {
         grpc_bind_ip: &IpAddr,
         blockengine_bind_port: u16,
         jito_blockengine: String,
+        local_blockengine_url: String,
         exit: &Arc<AtomicBool>,
     ) -> (Self, broadcast::Sender<SubscribeBundlesResponse>, crossbeam_channel::Receiver<SubscribeBundlesResponse>, broadcast::Sender<SubscribePacketsResponse>, crossbeam_channel::Receiver<SubscribePacketsResponse>) {
         let (bundles_sender_from_proxy, _) = broadcast::channel::<SubscribeBundlesResponse>(Self::BLOCKENGINE_CHANNEL_LIMIT);
@@ -36,6 +37,7 @@ impl Blockengine {
         let server = GrpcServer::new(
             rt,
             jito_blockengine,
+            local_blockengine_url,
             bundles_sender_from_proxy.clone(),
             bundles_sender_from_blockengine.clone(),
             packets_sender_from_proxy.clone(),

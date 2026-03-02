@@ -164,12 +164,15 @@ fn main() {
         &rpc_load_balancer_arc.clone(),
         &exit,
     );
+    
+    let local_blockengine_url = format!("http://{}:{}", args.grpc_bind_ip, args.blockengine_bind_port);
 
     let (blockengine, jito_bundle_sender, jito_bundle_receiver, jito_packets_sender, jito_packets_receiver) = Blockengine::new(
         &rt.handle(),
         &args.grpc_bind_ip,
         args.blockengine_bind_port,
         args.jito_blockengine,
+        local_blockengine_url,
         &exit,
     );
 
