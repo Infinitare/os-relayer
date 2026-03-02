@@ -78,6 +78,7 @@ sudo nano /etc/systemd/system/os-relayer.service
 
 Here you have to change the following lines:
 - JITO_BLOCKENGINE - fill in the closes Jito Block Engine URL you can find [here](https://docs.jito.wtf/lowlatencytxnsend/#api)
+- BAM_NODE - fill in the closes Jito Node URL you can find [here](https://bam.dev/validators/#step-3-choose-your-region)
 - PROXY - you'll get this from us
 - SIGNING_STRING - you'll get this from us
 

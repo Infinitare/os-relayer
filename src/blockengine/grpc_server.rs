@@ -3,16 +3,19 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use dashmap::DashMap;
-use futures_util::{StreamExt};
+use futures_util::{future, StreamExt};
 use log::{error, info, warn};
 use tokio::sync::broadcast;
 use tonic::codegen::BoxStream;
-use tonic::{Code, Request, Response, Status};
+use tonic::{Code, Request, Response, Status, Streaming};
 use tonic::transport::{Channel, Endpoint};
 use tokio_stream::{Stream, wrappers::{BroadcastStream}};
 use crate::protos::auth::auth_service_server::AuthService;
 use crate::protos::auth::{GenerateAuthChallengeRequest, GenerateAuthChallengeResponse, GenerateAuthTokensRequest, GenerateAuthTokensResponse, RefreshAccessTokenRequest, RefreshAccessTokenResponse};
 use crate::protos::auth::auth_service_client::AuthServiceClient;
+use crate::protos::bam_api::{AuthChallengeRequest, AuthChallengeResponse, ConfigRequest, ConfigResponse, SchedulerMessage, SchedulerResponse};
+use crate::protos::bam_api::bam_node_api_client::BamNodeApiClient;
+use crate::protos::bam_api::bam_node_api_server::BamNodeApi;
 use crate::protos::block_engine::block_engine_validator_server::BlockEngineValidator;
 use crate::protos::block_engine::{BlockBuilderFeeInfoRequest, BlockBuilderFeeInfoResponse, BlockEngineEndpoint, GetBlockEngineEndpointRequest, GetBlockEngineEndpointResponse, SubscribeBundlesRequest, SubscribeBundlesResponse, SubscribePacketsRequest, SubscribePacketsResponse};
 use crate::protos::block_engine::block_engine_validator_client::BlockEngineValidatorClient;
@@ -20,16 +23,20 @@ use crate::protos::block_engine::block_engine_validator_client::BlockEngineValid
 #[derive(Clone)]
 pub struct GrpcServer {
     block_engine_url: String,
+    bam_url: String,
     local_blockengine_url: String,
     rt: tokio::runtime::Handle,
 
     client_pool: Arc<DashMap<IpAddr, BlockEngineValidatorClient<Channel>>>,
     auth_pool: Arc<DashMap<IpAddr, AuthServiceClient<Channel>>>,
+    bam_pool: Arc<DashMap<IpAddr, BamNodeApiClient<Channel>>>,
 
     bundles_sender_from_proxy: broadcast::Sender<SubscribeBundlesResponse>,
     bundles_sender_from_blockengine: crossbeam_channel::Sender<SubscribeBundlesResponse>,
     packets_sender_from_proxy: broadcast::Sender<SubscribePacketsResponse>,
     packets_sender_from_blockengine: crossbeam_channel::Sender<SubscribePacketsResponse>,
+    bam_bundles_sender_from_proxy: broadcast::Sender<SchedulerResponse>,
+    bam_bundles_sender_from_bam: crossbeam_channel::Sender<SchedulerResponse>,
 
     exit: Arc<AtomicBool>,
 }
@@ -38,26 +45,34 @@ impl GrpcServer {
     pub fn new(
         rt: &tokio::runtime::Handle,
         block_engine_url: String,
+        bam_url: String,
         local_blockengine_url: String,
         bundles_sender_from_proxy: broadcast::Sender<SubscribeBundlesResponse>,
         bundles_sender_from_blockengine: crossbeam_channel::Sender<SubscribeBundlesResponse>,
         packets_sender_from_proxy: broadcast::Sender<SubscribePacketsResponse>,
         packets_sender_from_blockengine: crossbeam_channel::Sender<SubscribePacketsResponse>,
+        bam_bundles_sender_from_proxy: broadcast::Sender<SchedulerResponse>,
+        bam_bundles_sender_from_bam: crossbeam_channel::Sender<SchedulerResponse>,
         exit: &Arc<AtomicBool>,
     ) -> Self {
         let client_pool = Arc::new(DashMap::new());
         let auth_pool = Arc::new(DashMap::new());
+        let bam_pool = Arc::new(DashMap::new());
 
         GrpcServer {
             block_engine_url,
+            bam_url,
             local_blockengine_url,
             rt: rt.clone(),
             client_pool,
             auth_pool,
+            bam_pool,
             bundles_sender_from_proxy,
             bundles_sender_from_blockengine,
             packets_sender_from_proxy,
             packets_sender_from_blockengine,
+            bam_bundles_sender_from_proxy,
+            bam_bundles_sender_from_bam,
             exit: exit.clone(),
         }
     }
@@ -114,6 +129,31 @@ impl GrpcServer {
             .map_err(|e| Status::unavailable(e.to_string()))?;
 
         Ok(channel)
+    }
+
+    async fn get_bam_client(
+        &self,
+        peer: Option<SocketAddr>,
+    ) -> Result<BamNodeApiClient<Channel>, Status> {
+        if let Some(addr) = peer {
+            if let Some(existing) = self.bam_pool.get(&addr.ip()) {
+                return Ok(existing.clone());
+            }
+        }
+
+        let channel = Endpoint::from_shared(self.bam_url.clone())
+            .map_err(|e| Status::internal(e.to_string()))?
+            .connect()
+            .await
+            .map_err(|e| Status::unavailable(e.to_string()))?;
+
+        let client = BamNodeApiClient::new(channel);
+        if let Some(addr) = peer {
+            info!("adding client to bam service pool: {}", addr);
+            self.bam_pool.insert(addr.ip(), client.clone());
+        }
+
+        Ok(client)
     }
 
     fn make_response<T>(
@@ -280,7 +320,7 @@ impl BlockEngineValidator for GrpcServer {
         info!("Received get_block_builder_fee_info request from: {:?}", req.remote_addr());
         let peer = req.remote_addr();
         let mut upstream = self.get_block_engine_client(peer).await?;
-        
+
         let jito_res = upstream.get_block_engine_endpoints(req).await?.into_inner();
         let res = GetBlockEngineEndpointResponse {
             global_endpoint: jito_res.global_endpoint.map(|global| BlockEngineEndpoint {
@@ -294,7 +334,7 @@ impl BlockEngineValidator for GrpcServer {
                 }
             }).collect(),
         };
-        
+
         Ok(Response::new(res))
     }
 }
@@ -329,5 +369,75 @@ impl AuthService for GrpcServer {
         let peer = req.remote_addr();
         let mut upstream = self.get_auth_client(peer).await?;
         upstream.refresh_access_token(req).await
+    }
+}
+
+#[tonic::async_trait]
+impl BamNodeApi for GrpcServer {
+    async fn get_auth_challenge(
+        &self,
+        req: Request<AuthChallengeRequest>,
+    ) -> Result<Response<AuthChallengeResponse>, Status> {
+        info!("Received get_auth_challenge request from: {:?}", req.remote_addr());
+        let peer = req.remote_addr();
+        let mut upstream = self.get_bam_client(peer).await?;
+        upstream.get_auth_challenge(req).await
+    }
+
+    async fn get_builder_config(
+        &self,
+        req: Request<ConfigRequest>,
+    ) -> Result<Response<ConfigResponse>, Status> {
+        info!("Received get_builder_config request from: {:?}", req.remote_addr());
+        let peer = req.remote_addr();
+        let mut upstream = self.get_bam_client(peer).await?;
+        upstream.get_builder_config(req).await
+    }
+
+    type InitSchedulerStreamStream = BoxStream<SchedulerResponse>;
+
+    async fn init_scheduler_stream(
+        &self,
+        req: Request<Streaming<SchedulerMessage>>,
+    ) -> Result<Response<Self::InitSchedulerStreamStream>, Status> {
+        info!("Received init_scheduler_stream request from: {:?}", req.remote_addr());
+        let peer = req.remote_addr();
+        let mut upstream = self.get_bam_client(peer).await?;
+        let (metadata, extensions, inbound) = req.into_parts();
+
+        let outbound = inbound.filter_map(|item| {
+            future::ready(match item {
+                Ok(msg) => Some(msg),
+                Err(e) => {
+                    warn!("scheduler inbound stream item error: {:?}", e);
+                    None
+                }
+            })
+        });
+
+        let local_rx = self.bam_bundles_sender_from_proxy.subscribe();
+        let local_stream = make_local_stream(local_rx, &self.exit);
+
+        let out_req = Request::from_parts(metadata, extensions, outbound);
+        let up_resp = match upstream.init_scheduler_stream(out_req).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                if e.code() != Code::PermissionDenied {
+                    return Err(e)
+                }
+
+                warn!("Validator is blocked from BAM: {:?}", peer);
+                return Ok(Self::make_response(local_stream));
+            }
+        };
+
+        forwarder(
+            up_resp.into_inner(),
+            self.bam_bundles_sender_from_bam.clone(),
+            self.rt.clone(),
+            self.exit.clone(),
+        );
+
+        Ok(Self::make_response(local_stream))
     }
 }

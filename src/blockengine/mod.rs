@@ -10,6 +10,8 @@ use tonic::transport::Server;
 use crate::blockengine::grpc_server::GrpcServer;
 use crate::helper::shutdown_signal;
 use crate::protos::auth::auth_service_server::AuthServiceServer;
+use crate::protos::bam_api::bam_node_api_server::BamNodeApiServer;
+use crate::protos::bam_api::SchedulerResponse;
 use crate::protos::block_engine::{SubscribeBundlesResponse, SubscribePacketsResponse};
 use crate::protos::block_engine::block_engine_validator_server::BlockEngineValidatorServer;
 
@@ -25,23 +27,37 @@ impl Blockengine {
         grpc_bind_ip: &IpAddr,
         blockengine_bind_port: u16,
         jito_blockengine: String,
+        bam_url: String,
         local_blockengine_url: String,
         exit: &Arc<AtomicBool>,
-    ) -> (Self, broadcast::Sender<SubscribeBundlesResponse>, crossbeam_channel::Receiver<SubscribeBundlesResponse>, broadcast::Sender<SubscribePacketsResponse>, crossbeam_channel::Receiver<SubscribePacketsResponse>) {
+    ) -> (
+        Self,
+        broadcast::Sender<SubscribeBundlesResponse>,
+        crossbeam_channel::Receiver<SubscribeBundlesResponse>,
+        broadcast::Sender<SubscribePacketsResponse>,
+        crossbeam_channel::Receiver<SubscribePacketsResponse>,
+        broadcast::Sender<SchedulerResponse>,
+        crossbeam_channel::Receiver<SchedulerResponse>,
+    ) {
         let (bundles_sender_from_proxy, _) = broadcast::channel::<SubscribeBundlesResponse>(Self::BLOCKENGINE_CHANNEL_LIMIT);
         let (packets_sender_from_proxy, _) = broadcast::channel::<SubscribePacketsResponse>(Self::BLOCKENGINE_CHANNEL_LIMIT);
+        let (bam_bundles_sender_from_proxy, _) = broadcast::channel::<SchedulerResponse>(Self::BLOCKENGINE_CHANNEL_LIMIT);
 
         let (bundles_sender_from_blockengine, bundles_receiver_from_blockengine) = crossbeam_channel::bounded(Self::BLOCKENGINE_CHANNEL_LIMIT);
         let (packets_sender_from_blockengine, packets_receiver_from_blockengine) = crossbeam_channel::bounded(Self::BLOCKENGINE_CHANNEL_LIMIT);
+        let (bam_bundles_sender_from_blockengine, bam_bundles_receiver_from_blockengine) = crossbeam_channel::bounded(Self::BLOCKENGINE_CHANNEL_LIMIT);
 
         let server = GrpcServer::new(
             rt,
             jito_blockengine,
+            bam_url,
             local_blockengine_url,
             bundles_sender_from_proxy.clone(),
             bundles_sender_from_blockengine.clone(),
             packets_sender_from_proxy.clone(),
             packets_sender_from_blockengine.clone(),
+            bam_bundles_sender_from_proxy.clone(),
+            bam_bundles_sender_from_blockengine.clone(),
             exit
         );
 
@@ -52,7 +68,8 @@ impl Blockengine {
         let server = rt.spawn(async move {
             Server::builder()
                 .add_service(BlockEngineValidatorServer::new(server.clone()))
-                .add_service(AuthServiceServer::new(server))
+                .add_service(AuthServiceServer::new(server.clone()))
+                .add_service(BamNodeApiServer::new(server))
                 .serve_with_shutdown(server_addr, shutdown_signal(exit.clone()))
                 .await
                 .expect("serve relayer");
@@ -66,6 +83,8 @@ impl Blockengine {
             bundles_receiver_from_blockengine,
             packets_sender_from_proxy,
             packets_receiver_from_blockengine,
+            bam_bundles_sender_from_proxy,
+            bam_bundles_receiver_from_blockengine,
         )
     }
 

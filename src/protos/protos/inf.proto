@@ -3,6 +3,7 @@ syntax = "proto3";
 import "packet.proto";
 import "bundle.proto";
 import "block_engine.proto";
+import "bam_api.proto";
 import "google/protobuf/empty.proto";
 
 package inf;
@@ -19,12 +20,17 @@ message SubscribeBundlesRequest {
     Header header = 1;
 }
 
+message SubscribeBamBundlesRequest {
+    Header header = 1;
+}
+
 message StreamPacketsRequest {
     oneof kind {
         Header header = 1;
         packet.PacketBatch batch = 2;
     }
 }
+
 message StreamBundlesRequest {
     oneof kind {
         Header header = 1;
@@ -32,12 +38,21 @@ message StreamBundlesRequest {
     }
 }
 
+message StreamBamBundlesRequest {
+    oneof kind {
+        Header header = 1;
+        bam_api.SchedulerResponse bundle = 2;
+    }
+}
+
 service InfService {
     rpc SubscribePackets (SubscribePacketsRequest) returns (stream block_engine.SubscribePacketsResponse) {}
     rpc SubscribeJitoPackets (SubscribePacketsRequest) returns (stream block_engine.SubscribePacketsResponse) {}
     rpc SubscribeJitoBundles (SubscribeBundlesRequest) returns (stream block_engine.SubscribeBundlesResponse) {}
+    rpc SubscribeBamBundles (SubscribeBamBundlesRequest) returns (stream bam_api.SchedulerResponse) {}
 
     rpc StreamPackets (stream StreamPacketsRequest) returns (google.protobuf.Empty) {}
     rpc StreamJitoPackets (stream StreamPacketsRequest) returns (google.protobuf.Empty) {}
     rpc StreamJitoBundles (stream StreamBundlesRequest) returns (google.protobuf.Empty) {}
+    rpc StreamBamBundles (stream StreamBamBundlesRequest) returns (google.protobuf.Empty) {}
 }

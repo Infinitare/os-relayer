@@ -12,6 +12,7 @@ use tonic::transport::{Channel, Endpoint};
 use crate::protos::block_engine::{SubscribeBundlesResponse, SubscribePacketsResponse};
 use crate::protos::convert::{packet_to_proto_packet, proto_packet_to_packet};
 use crate::protos::{inf, packet};
+use crate::protos::bam_api::SchedulerResponse;
 use crate::protos::inf::inf_service_client::InfServiceClient;
 
 #[derive(Clone)]
@@ -42,9 +43,11 @@ impl Client {
         packet_sender: crossbeam_channel::Sender<BankingPacketBatch>,
         jito_bundle_sender: broadcast::Sender<SubscribeBundlesResponse>,
         jito_packets_sender: broadcast::Sender<SubscribePacketsResponse>,
+        bam_bundles_sender: broadcast::Sender<SchedulerResponse>,
         internal_proxy_packet_receiver: crossbeam_channel::Receiver<BankingPacketBatch>,
         internal_proxy_jito_bundle_receiver: crossbeam_channel::Receiver<SubscribeBundlesResponse>,
         internal_proxy_jito_packets_receiver: crossbeam_channel::Receiver<SubscribePacketsResponse>,
+        internal_proxy_bam_bundles_receiver: crossbeam_channel::Receiver<SchedulerResponse>,
     ) -> JoinHandle<()> {
         let self_clone = self.clone();
         let rt_clone = rt.clone();
@@ -67,9 +70,11 @@ impl Client {
                     &packet_sender,
                     &jito_bundle_sender,
                     &jito_packets_sender,
+                    &bam_bundles_sender,
                     &internal_proxy_packet_receiver,
                     &internal_proxy_jito_bundle_receiver,
                     &internal_proxy_jito_packets_receiver,
+                    &internal_proxy_bam_bundles_receiver,
                 ).await {
                     error!("Failed to start subscribing: {}", err);
                 }
@@ -89,9 +94,11 @@ impl Client {
         packet_sender: &crossbeam_channel::Sender<BankingPacketBatch>,
         jito_bundle_sender: &broadcast::Sender<SubscribeBundlesResponse>,
         jito_packets_sender: &broadcast::Sender<SubscribePacketsResponse>,
+        bam_bundles_sender: &broadcast::Sender<SchedulerResponse>,
         internal_proxy_packet_receiver: &crossbeam_channel::Receiver<BankingPacketBatch>,
         internal_proxy_jito_bundle_receiver: &crossbeam_channel::Receiver<SubscribeBundlesResponse>,
         internal_proxy_jito_packets_receiver: &crossbeam_channel::Receiver<SubscribePacketsResponse>,
+        internal_proxy_bam_bundles_receiver: &crossbeam_channel::Receiver<SchedulerResponse>,
     ) -> Result<(), String> {
         let header = inf::Header {
             signed_message: self.signed_message.clone(),
@@ -99,10 +106,12 @@ impl Client {
 
         let packet_request = inf::SubscribePacketsRequest { header: Some(header.clone()) };
         let bundles_request = inf::SubscribeBundlesRequest { header: Some(header.clone()) };
+        let bam_request = inf::SubscribeBamBundlesRequest { header: Some(header.clone()) };
 
         let packet_stream = client.subscribe_packets(packet_request.clone()).await.map_err(|e| e.to_string())?.into_inner();
         let jito_bundles_stream = client.subscribe_jito_bundles(bundles_request).await.map_err(|e| e.to_string())?.into_inner();
         let jito_packets_stream = client.subscribe_jito_packets(packet_request).await.map_err(|e| e.to_string())?.into_inner();
+        let bam_bundles_stream = client.subscribe_bam_bundles(bam_request.clone()).await.map_err(|e| e.to_string())?.into_inner();
 
         self.connected.store(true, Ordering::Relaxed);
         info!("Connected to proxy");
@@ -116,6 +125,8 @@ impl Client {
             jito_bundle_sender.clone(),
             jito_packets_stream,
             jito_packets_sender.clone(),
+            bam_bundles_stream,
+            bam_bundles_sender.clone(),
             &closed,
         );
 
@@ -126,6 +137,7 @@ impl Client {
             internal_proxy_packet_receiver,
             internal_proxy_jito_bundle_receiver,
             internal_proxy_jito_packets_receiver,
+            internal_proxy_bam_bundles_receiver,
             &closed,
         );
 
@@ -143,6 +155,8 @@ impl Client {
         jito_bundle_sender: broadcast::Sender<SubscribeBundlesResponse>,
         jito_packets_stream: Streaming<SubscribePacketsResponse>,
         jito_packets_sender: broadcast::Sender<SubscribePacketsResponse>,
+        bam_bundles_stream: Streaming<SchedulerResponse>,
+        bam_bundles_sender: broadcast::Sender<SchedulerResponse>,
         closed: &Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         let exit = self.exit.clone();
@@ -188,8 +202,19 @@ impl Client {
             }
         );
 
+        let bam_bundles_join = Self::subscription_thread(
+            rt.clone(),
+            exit.clone(),
+            closed.clone(),
+            bam_bundles_stream,
+            move |bundle| {
+                bam_bundles_sender.send(bundle).map_err(|e| format!("Failed to send bam bundle: {}", e))?;
+                Ok(())
+            }
+        );
+
         rt.spawn(async move {
-            let _ = futures_util::future::join3(packets_join, jito_bundles_join, jito_packets_join).await;
+            let _ = futures_util::future::join4(packets_join, jito_bundles_join, jito_packets_join, bam_bundles_join).await;
         })
     }
 
@@ -253,6 +278,7 @@ impl Client {
         internal_proxy_packet_receiver: &crossbeam_channel::Receiver<BankingPacketBatch>,
         internal_proxy_jito_bundle_receiver: &crossbeam_channel::Receiver<SubscribeBundlesResponse>,
         internal_proxy_jito_packets_receiver: &crossbeam_channel::Receiver<SubscribePacketsResponse>,
+        internal_proxy_bam_bundles_receiver: &crossbeam_channel::Receiver<SchedulerResponse>,
         closed: &Arc<AtomicBool>,
     ) -> JoinHandle<()> {
         let packet_stream = Self::stream_packets(
@@ -273,14 +299,22 @@ impl Client {
 
         let jito_packets_stream = Self::stream_jito_packets(
             rt.clone(),
-            client,
-            header,
+            client.clone(),
+            header.clone(),
             internal_proxy_jito_packets_receiver.clone(),
             closed.clone(),
         );
 
+        let bam_bundles_stream = Self::stream_bam_bundles(
+            rt.clone(),
+            client,
+            header,
+            internal_proxy_bam_bundles_receiver.clone(),
+            closed.clone(),
+        );
+
         rt.spawn(async move {
-            let _ = futures_util::future::join3(packet_stream, jito_bundle_stream, jito_packets_stream).await;
+            let _ = futures_util::future::join4(packet_stream, jito_bundle_stream, jito_packets_stream, bam_bundles_stream).await;
         })
     }
 
@@ -494,18 +528,87 @@ impl Client {
         })
     }
 
+    fn stream_bam_bundles(
+        rt: tokio::runtime::Handle,
+        mut client: InfServiceClient<Channel>,
+        header: inf::Header,
+        internal_proxy_packet_receiver: crossbeam_channel::Receiver<SchedulerResponse>,
+        closed: Arc<AtomicBool>,
+    ) -> JoinHandle<()> {
+        let rt_clone = rt.clone();
+        rt.spawn(async move {
+            let (tx, rx_mpsc) = mpsc::channel::<inf::StreamBamBundlesRequest>(256);
+
+            rt_clone.spawn(async move {
+                let stream = ReceiverStream::new(rx_mpsc);
+                client.stream_bam_bundles(Request::new(stream)).await
+            });
+
+            let _ = tx.send(inf::StreamBamBundlesRequest {
+                kind: Some(inf::stream_bam_bundles_request::Kind::Header(header)),
+            }).await;
+
+            let tick = crossbeam_channel::tick(std::time::Duration::from_millis(100));
+
+            enum Action {
+                Bundle(SchedulerResponse),
+                Tick,
+                Close,
+            }
+
+            loop {
+                let action = crossbeam_channel::select! {
+                    recv(internal_proxy_packet_receiver) -> res => {
+                        match res {
+                            Ok(pkt) => Action::Bundle(pkt),
+                            Err(err) => {
+                                info!("Channel closed with: {}", err);
+                                Action::Close
+                            }
+                        }
+                    }
+                    recv(tick) -> _ => Action::Tick,
+                };
+
+                match action {
+                    Action::Bundle(pkt) => {
+                        if let Err(err) = tx.send(inf::StreamBamBundlesRequest {
+                            kind: Some(inf::stream_bam_bundles_request::Kind::Bundle(pkt)),
+                        }).await {
+                            error!("Failed to send bam bundle to stream {}", err);
+                            break;
+                        }
+                    }
+                    Action::Tick => {
+                        if closed.load(Ordering::Relaxed) {
+                            break;
+                        }
+                    }
+                    Action::Close => break,
+                }
+            }
+
+            closed.store(true, Ordering::Relaxed);
+            drop(tx);
+            info!("bam bundles stream closed");
+        })
+    }
+
     pub fn handle_routing(
         &self,
         rt: &tokio::runtime::Handle,
         packet_receiver: crossbeam_channel::Receiver<BankingPacketBatch>,
         jito_bundle_receiver: crossbeam_channel::Receiver<SubscribeBundlesResponse>,
         jito_packets_receiver: crossbeam_channel::Receiver<SubscribePacketsResponse>,
+        bam_bundles_receiver: crossbeam_channel::Receiver<SchedulerResponse>,
         packet_sender: crossbeam_channel::Sender<BankingPacketBatch>,
         jito_bundle_sender: broadcast::Sender<SubscribeBundlesResponse>,
         jito_packets_sender: broadcast::Sender<SubscribePacketsResponse>,
+        bam_bundles_sender: broadcast::Sender<SchedulerResponse>,
         internal_proxy_packet_sender: crossbeam_channel::Sender<BankingPacketBatch>,
         internal_proxy_jito_bundle_sender: crossbeam_channel::Sender<SubscribeBundlesResponse>,
         internal_proxy_jito_packets_sender: crossbeam_channel::Sender<SubscribePacketsResponse>,
+        internal_proxy_bam_bundles_sender: crossbeam_channel::Sender<SchedulerResponse>,
     ) -> JoinHandle<()> {
         let self_clone = self.clone();
         let rt_clone = rt.clone();
@@ -585,11 +688,32 @@ impl Client {
                 }
             );
 
-            let _ = futures_util::future::join4(
+            let bam_bundles_join = Self::route_thread(
+                &rt_clone,
+                &exit,
+                &direct_redirect,
+                bam_bundles_receiver,
+                move |bundle, cached_direct_redirect| {
+                    debug!("Received bam bundle - direct_redirect: {}", cached_direct_redirect);
+                    if cached_direct_redirect {
+                        bam_bundles_sender
+                            .send(bundle)
+                            .map_err(|e| format!("Failed to send bam bundle to sender: {}", e))?;
+                        Ok(())
+                    } else {
+                        internal_proxy_bam_bundles_sender
+                            .send(bundle)
+                            .map_err(|e| format!("Failed to send bam bundle to internal proxy: {}", e))
+                    }
+                }
+            );
+
+            let _ = futures_util::future::join5(
                 handler_join,
                 packets_join,
                 jito_bundles_join,
-                jito_packets_join
+                jito_packets_join,
+                bam_bundles_join
             ).await;
         })
     }

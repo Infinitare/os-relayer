@@ -85,6 +85,10 @@ struct Args {
     #[arg(long, env)]
     jito_blockengine: String,
 
+    /// Jito Blockengine the Relayer will connect to - choose the one closest to your Server
+    #[arg(long, env)]
+    bam_node: String,
+
     /// Server the Relayer will connect to analyze transactions
     #[arg(long, env)]
     proxy: String,
@@ -164,14 +168,23 @@ fn main() {
         &rpc_load_balancer_arc.clone(),
         &exit,
     );
-    
+
     let local_blockengine_url = format!("http://{}:{}", args.grpc_bind_ip, args.blockengine_bind_port);
 
-    let (blockengine, jito_bundle_sender, jito_bundle_receiver, jito_packets_sender, jito_packets_receiver) = Blockengine::new(
+    let (
+        blockengine,
+        jito_bundle_sender,
+        jito_bundle_receiver,
+        jito_packets_sender,
+        jito_packets_receiver,
+        bam_bundles_sender,
+        bam_bundles_receiver,
+    ) = Blockengine::new(
         &rt.handle(),
         &args.grpc_bind_ip,
         args.blockengine_bind_port,
         args.jito_blockengine,
+        args.bam_node,
         local_blockengine_url,
         &exit,
     );
@@ -187,6 +200,8 @@ fn main() {
         jito_bundle_receiver,
         jito_packets_sender,
         jito_packets_receiver,
+        bam_bundles_sender,
+        bam_bundles_receiver,
         &args.signing_string,
         &exit,
     );

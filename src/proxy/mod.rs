@@ -9,6 +9,7 @@ use solana_sdk::signer::Signer;
 use tokio::sync::{broadcast};
 use tokio::task::JoinHandle;
 use tonic::transport::{Endpoint};
+use crate::protos::bam_api::SchedulerResponse;
 use crate::protos::block_engine::{SubscribeBundlesResponse, SubscribePacketsResponse};
 use crate::proxy::client::Client;
 
@@ -30,6 +31,8 @@ impl Proxy {
         jito_bundle_receiver: crossbeam_channel::Receiver<SubscribeBundlesResponse>,
         jito_packets_sender: broadcast::Sender<SubscribePacketsResponse>,
         jito_packets_receiver: crossbeam_channel::Receiver<SubscribePacketsResponse>,
+        bam_bundles_sender: broadcast::Sender<SchedulerResponse>,
+        bam_bundles_receiver: crossbeam_channel::Receiver<SchedulerResponse>,
         sign_message: &String,
         exit: &Arc<AtomicBool>,
     ) -> Self {
@@ -48,15 +51,18 @@ impl Proxy {
         let (internal_proxy_packet_sender, internal_proxy_packet_receiver) = crossbeam_channel::bounded(Self::PROXY_CHANNEL_LIMIT);
         let (internal_proxy_jito_bundle_sender, internal_proxy_jito_bundle_receiver) = crossbeam_channel::bounded(Self::PROXY_CHANNEL_LIMIT);
         let (internal_proxy_jito_packets_sender, internal_proxy_jito_packets_receiver) = crossbeam_channel::bounded(Self::PROXY_CHANNEL_LIMIT);
+        let (internal_proxy_bam_bundles_sender, internal_proxy_bam_bundles_receiver) = crossbeam_channel::bounded(Self::PROXY_CHANNEL_LIMIT);
 
         let connection_join = client.start_connection_thread(
             rt,
             packet_sender.clone(),
             jito_bundle_sender.clone(),
             jito_packets_sender.clone(),
+            bam_bundles_sender.clone(),
             internal_proxy_packet_receiver,
             internal_proxy_jito_bundle_receiver,
             internal_proxy_jito_packets_receiver,
+            internal_proxy_bam_bundles_receiver,
         );
 
         let routing_join = client.handle_routing(
@@ -64,12 +70,15 @@ impl Proxy {
             packet_receiver,
             jito_bundle_receiver,
             jito_packets_receiver,
+            bam_bundles_receiver,
             packet_sender,
             jito_bundle_sender,
             jito_packets_sender,
+            bam_bundles_sender,
             internal_proxy_packet_sender,
             internal_proxy_jito_bundle_sender,
             internal_proxy_jito_packets_sender,
+            internal_proxy_bam_bundles_sender,
         );
 
         Proxy {

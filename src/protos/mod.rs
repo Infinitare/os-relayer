@@ -4,6 +4,14 @@ pub mod block_engine {
     tonic::include_proto!("block_engine");
 }
 
+pub mod bam_api {
+    tonic::include_proto!("bam_api");
+}
+
+pub mod bam_types {
+    tonic::include_proto!("bam_types");
+}
+
 pub mod packet {
     tonic::include_proto!("packet");
 }

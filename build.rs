@@ -14,6 +14,8 @@ fn main() {
             &[
                 "src/protos/protos/inf.proto",
                 "src/protos/protos/auth.proto",
+                "src/protos/protos/bam_api.proto",
+                "src/protos/protos/bam_types.proto",
                 "src/protos/protos/block_engine.proto",
                 "src/protos/protos/packet.proto",
                 "src/protos/protos/bundle.proto",

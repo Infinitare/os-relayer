@@ -17,6 +17,7 @@ Environment=RUST_LOG=info
 Environment=RPC_SERVER=http://127.0.0.1:8899
 Environment=WEBSOCKET_SERVER=ws://127.0.0.1:8900
 Environment=JITO_BLOCKENGINE=
+Environment=BAM_NODE=
 Environment=PROXY=
 Environment=SIGNING_STRING=
 RestartSec=0
